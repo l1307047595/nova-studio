@@ -1,0 +1,62 @@
+name: 打 Mac 安装包
+
+# 不需要你手上有 Mac：GitHub 提供 macOS 运行器，点一下按钮就在云端打包。
+#
+# 前置条件（只需一次）：
+#   1. 把项目推到一个你自己的【私有】仓库（私有 = 源码不公开，满足"不暴露源码"）
+#   2. 仓库 → Actions 页面 → 允许运行工作流（私有仓库默认允许）
+#
+# 用法：
+#   仓库 → Actions → 左侧选「打 Mac 安装包」→ Run workflow → 选 l 或 hk → 等十几分钟
+#   → 在运行结果页最下方下载 Artifacts（dmg / zip / -mac.yml）
+#
+# 额度：私有仓库每月 2000 分钟；macOS 运行器按 10 倍计费 → 约可打 10~15 次。
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: '打哪个版本：l = 仅通用记忆种子；hk = 全量记忆种子'
+        required: true
+        default: 'l'
+        type: choice
+        options:
+          - l
+          - hk
+
+jobs:
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - name: 取代码
+        uses: actions/checkout@v4
+
+      - name: 装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 装依赖（根 + 前端）
+        run: |
+          npm install --no-audit --no-fund
+          cd frontend && npm install --no-audit --no-fund
+
+      - name: 打 mac 安装包（arm64 + x64，未签名）
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'   # 没买苹果证书时，别去找证书
+        run: bash build-mac.sh ${{ inputs.variant }}
+
+      - name: 列出产物
+        run: ls -la release/ | sed -n '1,40p'
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: nova-mac-${{ inputs.variant }}
+          path: |
+            release/*-mac-arm64.dmg
+            release/*-mac-x64.dmg
+            release/*-mac-arm64.zip
+            release/*-mac-x64.zip
+            release/*-mac.yml
+          if-no-files-found: error
+          retention-days: 14

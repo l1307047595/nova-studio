@@ -31,11 +31,26 @@ command -v node >/dev/null 2>&1 || {
 }
 echo "  node $(node -v)   npm $(npm -v)"
 
-# better-sqlite3 自带 darwin-arm64 / darwin-x64 预编译包，不需要 Xcode 或编译工具
-if [ ! -d node_modules ]; then
-  echo "== 装依赖（第一次几分钟）=="
-  npm ci
-fi
+# 依赖必须在 Mac 上装：从 Windows 拷来的 node_modules 里是 win32 的 electron/better-sqlite3，
+# 打 mac 包会直接失败。用 Electron.app 是否存在来判断「这份 node_modules 是不是 mac 上装的」。
+# 另外 frontend 的依赖也要装 —— npm run build 需要 Next。
+install_deps() {
+  if [ ! -d "node_modules/electron/dist/Electron.app" ]; then
+    echo "== 安装根依赖（Mac 上首次几分钟；会拉 Electron）=="
+    npm install --no-audit --no-fund
+  else
+    echo "== 根依赖已是 mac 版本，跳过 =="
+  fi
+  if [ ! -d "frontend/node_modules/next" ]; then
+    echo "== 安装前端依赖（Next）=="
+    (cd frontend && npm install --no-audit --no-fund)
+  else
+    echo "== 前端依赖已就绪，跳过 =="
+  fi
+}
+# better-sqlite3 自带 darwin-arm64 / darwin-x64 预编译包，不需要 Xcode 或编译工具；
+# 若它退回本地编译（国内拉不到预编译包时会发生），说明网络受限，可换网络或用代理重试。
+install_deps
 
 echo "== 放记忆种子 =="
 rm -rf backend/memory-seed
