@@ -71,6 +71,11 @@ next-env.d.ts
 backend/.env
 backend/.env.local
 
+# 本地部署产物（nova_up.sh 写入）
+nova.log
+nova.pid
+logs/
+
 # frontend build output
 frontend/out/
 frontend/.next/
@@ -87,3 +92,14 @@ frontend/public/workbox-*.js
 
 # other
 infinite-canvas-main/
+
+# 本地 Agent 记忆（按 agent 隔离，不进仓库）
+backend/data/memory/
+
+# 发版用的 GitHub PAT（绝不入仓）
+.gh-token
+
+# 构建产物与本地运行残留（不入库）
+/dist/
+backend/chrome-profile/
+*.bak-*

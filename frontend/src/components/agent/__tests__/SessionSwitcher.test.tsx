@@ -4,6 +4,10 @@ import { SessionSwitcher } from '../SessionSwitcher';
 
 const sessionApi = vi.hoisted(() => ({
   listAgentSessions: vi.fn(),
+  // 多类目后组件改用「按类目取会话」+「按类目算默认会话 id」，mock 必须补齐这两个导出，
+  // 否则 vitest 直接抛 No "xxx" export is defined on the mock。
+  listAgentSessionsForAgent: vi.fn(),
+  defaultSessionIdForAgent: vi.fn((agentId: string) => (agentId === 'squeeze' ? 'default' : `default-${agentId}`)),
   createAgentSession: vi.fn(),
   renameAgentSession: vi.fn(),
   deleteAgentSession: vi.fn(),
@@ -22,7 +26,8 @@ describe('SessionSwitcher sidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     sessionApi.listAgentSessions.mockReturnValue([defaultSession, designSession]);
-    sessionApi.createAgentSession.mockImplementation((name: string) => ({ id: 'new-session', name }));
+    sessionApi.listAgentSessionsForAgent.mockReturnValue([defaultSession, designSession]);
+    sessionApi.createAgentSession.mockImplementation((name: string, agentId: string) => ({ id: 'new-session', name, agentId }));
     sessionApi.renameAgentSession.mockImplementation((id: string, name: string) => ({ id, name }));
     sessionApi.deleteAgentSession.mockImplementation(() => undefined);
     contextStore.deleteAgentSessionDatabase.mockResolvedValue(undefined);
@@ -60,8 +65,8 @@ describe('SessionSwitcher sidebar', () => {
     });
     fireEvent.click(within(dialog).getByRole('button', { name: '创建' }));
 
-    await waitFor(() => expect(sessionApi.createAgentSession).toHaveBeenCalledWith('新的工作流'));
-    expect(sessionApi.listAgentSessions).toHaveBeenCalledTimes(2);
+    await waitFor(() => expect(sessionApi.createAgentSession).toHaveBeenCalledWith('新的工作流', 'squeeze'));
+    expect(sessionApi.listAgentSessionsForAgent).toHaveBeenCalledTimes(3);
     expect(onSessionChange).toHaveBeenCalledWith('new-session');
   });
 
@@ -76,7 +81,7 @@ describe('SessionSwitcher sidebar', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '保存' }));
 
     await waitFor(() => expect(sessionApi.renameAgentSession).toHaveBeenCalledWith('design', '最终稿'));
-    expect(sessionApi.listAgentSessions).toHaveBeenCalledTimes(2);
+    expect(sessionApi.listAgentSessionsForAgent).toHaveBeenCalledTimes(3);
   });
 
   it('does not offer deletion for the default session', () => {
@@ -122,7 +127,7 @@ describe('SessionSwitcher sidebar', () => {
     await waitFor(() => expect(sessionApi.deleteAgentSession).toHaveBeenCalledWith('design'));
     expect(contextStore.deleteAgentSessionDatabase).toHaveBeenCalledWith('design');
     expect(onSessionChange).not.toHaveBeenCalled();
-    expect(sessionApi.listAgentSessions).toHaveBeenCalledTimes(2);
+    expect(sessionApi.listAgentSessionsForAgent).toHaveBeenCalledTimes(3);
   });
 
   it('keeps the registry entry, restores the old session, and reports an error when deletion fails', async () => {
@@ -137,7 +142,7 @@ describe('SessionSwitcher sidebar', () => {
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('删除会话失败，请重试。');
     expect(onSessionChange.mock.calls.map(([id]) => id)).toEqual(['default', 'design']);
     expect(sessionApi.deleteAgentSession).not.toHaveBeenCalled();
-    expect(sessionApi.listAgentSessions).toHaveBeenCalledTimes(1);
+    expect(sessionApi.listAgentSessionsForAgent).toHaveBeenCalledTimes(2);
     expect(dialog).toBeInTheDocument();
   });
 

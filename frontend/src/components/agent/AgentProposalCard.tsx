@@ -68,7 +68,7 @@ interface AgentProposalCardProps {
   hideControls?: boolean;
   failed?: boolean;
   onModelChange: (model: ModelId) => void;
-  onApprove: (prompt: string, selectedImageIds: string[], model: ModelId, params: AgentApproveParams) => void;
+  onApprove: (prompt: string, selectedImageIds: string[], model: ModelId, params: AgentApproveParams, promptEn?: string) => void;
   onCancel: () => void;
 }
 
@@ -132,6 +132,9 @@ export function AgentProposalCard({
   const [selectedIds, setSelectedIds] = useState<string[]>(initialSelectedIds);
   const [layout, setLayout] = useState<AgentApproveParams>(() => resolveCardLayout(imageModel, scopedProposal));
   const [prompt, setPrompt] = useState(() => stripAgentPromptBatchLanguage(scopedProposal.prompt));
+  /** 模型给的中文原稿；用户改过就认为「已编辑」，此时英文生图版作废、改用改后的中文发出 */
+  const originalPrompt = useMemo(() => stripAgentPromptBatchLanguage(scopedProposal.prompt), [scopedProposal.prompt]);
+  const edited = prompt !== originalPrompt;
   const [modelPopoverOpen, setModelPopoverOpen] = useState(false);
   const [sizePopoverOpen, setSizePopoverOpen] = useState(false);
   const [aspectPopoverOpen, setAspectPopoverOpen] = useState(false);
@@ -306,7 +309,10 @@ export function AgentProposalCard({
   const handleApprove = () => {
     if (busy || overLimit) return;
     if (maxRefs <= 0 && selectedIds.length > 0) return;
-    onApprove(prompt, selectedIds.slice(0, Math.max(0, maxRefs)), imageModel, layout);
+    // 英文生图版只在「中文一字未改」时才送出：用户改过中文版，就改用改后的中文发出去，
+    // 免得出现"你看到的是 A、实际发出的是 B"。
+    const promptEn = edited ? undefined : scopedProposal.promptEn;
+    onApprove(prompt, selectedIds.slice(0, Math.max(0, maxRefs)), imageModel, layout, promptEn);
   };
 
   return (
@@ -338,6 +344,19 @@ export function AgentProposalCard({
         className="mb-3 min-h-24 text-sm"
         placeholder="描述你想要的画面..."
       />
+
+      {scopedProposal.promptEn && (
+        <details className="mb-3 rounded-lg border border-border/60 bg-muted/30">
+          <summary className="cursor-pointer px-3 py-1.5 text-xs text-muted-foreground hover:text-foreground">
+            {edited
+              ? '英文生图版（你已修改中文版 → 本次改用中文版发出，英文版作废）'
+              : '英文生图版（实际发给生图模型的就是这一份）'}
+          </summary>
+          <div className="max-h-52 overflow-y-auto border-t border-border/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+            <div className="whitespace-pre-wrap break-words">{scopedProposal.promptEn}</div>
+          </div>
+        </details>
+      )}
 
       {orderedImages.length > 0 && (
         <div className="mb-3">

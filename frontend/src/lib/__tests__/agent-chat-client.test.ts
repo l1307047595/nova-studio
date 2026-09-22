@@ -270,12 +270,34 @@ describe('CDP 工具循环', () => {
     }
   });
 
+  it('铁律：空参考图的生成提案会被拦下，并在对话里说明原因', async () => {
+    const proposalArgs = {
+      action: 'generate',
+      prompt: '画一张淘宝主图',
+      referenced_image_ids: [],
+      reason: '凭描述直接生成',
+    };
+    const mock = vi.fn().mockResolvedValue(
+      sseResponse(toolCallFrames('openai-chat-completions', 'propose_image_action', proposalArgs, 'call_no_ref')),
+    );
+    vi.stubGlobal('fetch', mock);
+    const { callbacks, collected } = makeCallbacks();
+
+    await streamAgentChat(baseInput('openai-chat-completions', { cdp: true, cdpExecutor: vi.fn(async () => '不该被调用') }), callbacks).promise;
+
+    // 提案不给出去；但必须把「为什么被拦」写进对话（用户看得见，模型也从历史里学得到）
+    expect(collected.done?.proposal).toBeFalsy();
+    expect(collected.done?.proposals || []).toHaveLength(0);
+    expect(collected.done?.text || '').toContain('已拦下');
+    expect(collected.done?.text || '').toContain('参考图');
+  });
+
   it('模型调用 propose_image_action 时直接产出提案，不执行 CDP 工具', async () => {
     const executor = vi.fn(async () => '不应被调用');
     const proposalArgs = {
       action: 'generate',
       prompt: '画一张淘宝主图',
-      referenced_image_ids: [],
+      referenced_image_ids: ['img_a'],
       reason: '用户要做主图',
     };
     const mock = vi.fn().mockResolvedValue(
@@ -508,7 +530,7 @@ describe('CDP 工具循环', () => {
       prompt: '主图，画面比例 3:4',
       requested_aspect_ratio: '3:4',
       parallel_count: 1,
-      referenced_image_ids: [],
+      referenced_image_ids: ['img_a'],
       reason: '先给 3:4 方案',
     };
     const mock = vi.fn().mockResolvedValue(sseResponse([
@@ -534,7 +556,7 @@ describe('CDP 工具循环', () => {
       prompt: '主图，画面比例 1:1',
       requested_aspect_ratio: '1:1',
       parallel_count: 1,
-      referenced_image_ids: [],
+      referenced_image_ids: ['img_a'],
       reason: '先给 1:1 方案',
     };
     const mock = vi.fn().mockResolvedValue(sseResponse([
@@ -560,7 +582,7 @@ describe('CDP 工具循环', () => {
       prompt: '主图，画面比例 1:1',
       requested_aspect_ratio: '1:1',
       parallel_count: 1,
-      referenced_image_ids: [],
+      referenced_image_ids: ['img_a'],
       reason: '先给 1:1 方案',
     };
     const mock = vi.fn().mockResolvedValue(sseResponse([
@@ -587,7 +609,7 @@ describe('CDP 工具循环', () => {
       prompt: '主图，画面比例 1:1',
       requested_aspect_ratio: '1:1',
       parallel_count: 1,
-      referenced_image_ids: [],
+      referenced_image_ids: ['img_a'],
       reason: '先给 1:1 方案',
     };
     const mock = vi.fn().mockResolvedValue(sseResponse([
@@ -666,7 +688,7 @@ describe('CDP 工具循环', () => {
       prompt: '主图，画面比例 3:4',
       requested_aspect_ratio: '3:4',
       parallel_count: 1,
-      referenced_image_ids: [],
+      referenced_image_ids: ['img_a'],
       reason: '先给 3:4 方案',
     };
     const mock = vi.fn().mockResolvedValue(sseResponse([
@@ -1226,10 +1248,11 @@ describe('多图分别处理兜底拆分', () => {
     expect(proposals).toHaveLength(1);
   });
 
-  it('模型完全没为被点名图出 edit 提案时不凭空发明', async () => {
+  it('铁律生效后：空参考图的提案会被拦下，连兜底拆分也不给它补', async () => {
     const proposals = await runSeparateCase('把图1和图2都改成1:1', [
       { ...editProposal([]), action: 'generate', referenced_image_ids: [] },
     ]);
-    expect(proposals).toHaveLength(1);
+    // 以前这里期望 1 条（不凭空发明拆分）；现在空参考图直接不合规 → 0 条
+    expect(proposals).toHaveLength(0);
   });
 });

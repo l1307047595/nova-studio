@@ -28,6 +28,21 @@ asarUnpack:
   - node_modules/better-sqlite3/**
   - backend/plugin-runtime/**
   - backend/plugins/**
+# 记忆种子：首次运行时由 desktop/main.cjs 拷进数据目录（已有记忆不覆盖）。
+# 放在 extraResources 而不是 files 里 —— 它是真实目录、不在只读 asar 内，复制才可靠。
+# 打包不同版本时替换 backend/memory-seed/ 的内容即可（全量 / 仅通用）。
+extraResources:
+  - from: backend/memory-seed
+    to: memory-seed
+    filter:
+      - '**/*'
+# 自动更新源：GitHub Releases（仓库只放发布产物，不放源码）。
+# 两个版本共用同一仓库、靠 channel 分开：HK 版 → latest-hk.yml，L 版 → latest-l.yml。
+# 打包时用 -c.publish.channel=hk / l 指定；--publish never 表示只构建、不上传（上传走 publish-release.sh）。
+publish:
+  provider: github
+  owner: l1307047595
+  repo: nova-studio-release
 # better-sqlite3 v13 的 npm 包自带全平台 N-API prebuilds（prebuilds/ 目录），
 # 运行时按平台挑选二进制；无需 electron-builder 逐平台 rebuild，
 # 且在 Linux 上交叉构建 win/mac 时 node-gyp 编译必然失败，故关闭。
@@ -36,19 +51,34 @@ win:
   target:
     - nsis
   artifactName: ${productName}-${version}-win-${arch}.${ext}
-  # 自分发构建（无代码签名证书）：关闭 exe 签名与资源编辑。
-  # 签名/改图标在 Linux 上依赖 wine，关闭后使用默认 Electron 图标。
-  signAndEditExecutable: false
+  # 自分发构建（无代码签名证书）：只关签名，**必须保留 exe 资源编辑**。
+  # ⚠️ 别用 signAndEditExecutable: false —— 它会连图标和版本信息一起跳过，
+  #    结果是安装包外壳有图标、装出来的主程序还是 Electron 默认图标（踩过）。
+  #    同理不要用 sign: false（那是整个签名步骤），要的是下面这个「只跳签名」。
+  signExecutable: false
 nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
 mac:
+  # dmg 给人手动装（拖进「应用程序」）；zip 是给自动更新用的 ——
+  # macOS 上 electron-updater 只处理 zip，dmg 它不认。
   target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
     - target: zip
       arch:
         - arm64
+        - x64
   category: public.app-category.graphics-design
+  icon: build/icon.icns
+  # 没买 Apple 开发者证书（$99/年）时的默认：不签名、跳过 Gatekeeper 评估。
+  # ⚠️ 未签名的 mac 版**收不到自动更新**（Squirrel.Mac 会校验代码签名），
+  #    只能手动下 dmg 覆盖安装；要自动更新必须签名 + 公证（notarize）。
+  identity: null
+  gatekeeperAssess: false
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
 linux:
   target:

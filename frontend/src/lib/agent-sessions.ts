@@ -1,8 +1,11 @@
 import { generateUUID } from '@/lib/uuid';
+import { DEFAULT_AGENT_ID, getLastSessionForAgent, setLastSessionForAgent } from '@/lib/nova-agents';
 
 export interface AgentSession {
   id: string;
   name: string;
+  /** 归属类目（agent）。老会话没有这个字段，按默认类目算。 */
+  agentId?: string;
 }
 
 const SESSIONS_KEY = 'nova-agent-sessions';
@@ -19,8 +22,11 @@ function getStorage(): Storage | null {
   }
 }
 
+/** 只保留有值的字段：agentId 为 undefined 时不要写成「有这个键」，否则严格比较（toEqual）会被无意义的 undefined 干扰 */
 function cloneSession(session: AgentSession): AgentSession {
-  return { id: session.id, name: session.name };
+  return session.agentId
+    ? { id: session.id, name: session.name, agentId: session.agentId }
+    : { id: session.id, name: session.name };
 }
 
 function normalizeSessions(values: unknown[]): AgentSession[] {
@@ -69,15 +75,44 @@ function saveSessions(sessions: AgentSession[]): void {
   }
 }
 
+/** 某类目的会话归属：老会话（无 agentId）算默认类目 */
+function sessionAgentId(session: AgentSession): string {
+  return session.agentId || DEFAULT_AGENT_ID;
+}
+
+/**
+ * 每个类目有自己的默认会话 id：默认类目沿用 'default'（保住已有对话记录），
+ * 其他类目用 'default-<agentId>'。会话 id 决定 IndexedDB 库名，所以绝不能跨类目共用，
+ * 否则两个类目会读到同一份对话。
+ */
+export function defaultSessionIdForAgent(agentId: string): string {
+  return agentId === DEFAULT_AGENT_ID ? DEFAULT_SESSION.id : `default-${agentId}`;
+}
+
 export function listAgentSessions(): AgentSession[] {
   return getStoredSessions();
 }
 
-export function createAgentSession(name = '新会话'): AgentSession {
+/** 该类目的会话列表（没有就自动建一个默认会话） */
+export function listAgentSessionsForAgent(agentId: string): AgentSession[] {
+  const normalized = agentId || DEFAULT_AGENT_ID;
+  const owned = getStoredSessions().filter(session => sessionAgentId(session) === normalized);
+  if (owned.length > 0) return owned;
+
+  const created: AgentSession = {
+    id: defaultSessionIdForAgent(normalized),
+    name: DEFAULT_SESSION.name,
+    agentId: normalized,
+  };
+  saveSessions([...getStoredSessions(), created]);
+  return [created];
+}
+
+export function createAgentSession(name = '新会话', agentId = DEFAULT_AGENT_ID): AgentSession {
   const normalizedName = name.trim();
   if (!normalizedName) throw new Error('会话名称不能为空');
 
-  const session = { id: generateUUID(), name: normalizedName };
+  const session = { id: generateUUID(), name: normalizedName, agentId: agentId || DEFAULT_AGENT_ID };
   saveSessions([...getStoredSessions(), session]);
   return session;
 }
@@ -99,15 +134,24 @@ export function deleteAgentSession(id: string): boolean {
   if (id === DEFAULT_SESSION.id) return false;
 
   const sessions = getStoredSessions();
-  if (!sessions.some(session => session.id === id)) return false;
-  const wasActive = getActiveAgentSessionId() === id;
+  const target = sessions.find(session => session.id === id);
+  if (!target) return false;
+  if (id === defaultSessionIdForAgent(sessionAgentId(target))) return false;
 
+  const wasActive = getActiveAgentSessionId() === id;
   saveSessions(sessions.filter(session => session.id !== id));
   if (wasActive) setActiveAgentSessionId(DEFAULT_SESSION.id);
   return true;
 }
 
-export function getActiveAgentSessionId(): string {
+/** 取当前类目上次用的会话（给了 agentId 就按类目各记一份） */
+export function getActiveAgentSessionId(agentId?: string): string {
+  if (agentId) {
+    const stored = getLastSessionForAgent(agentId);
+    if (listAgentSessionsForAgent(agentId).some(session => session.id === stored)) return stored;
+    return listAgentSessionsForAgent(agentId)[0]?.id || defaultSessionIdForAgent(agentId);
+  }
+
   const storage = getStorage();
   if (!storage) return DEFAULT_SESSION.id;
 
@@ -122,9 +166,12 @@ export function getActiveAgentSessionId(): string {
   }
 }
 
-export function setActiveAgentSessionId(id: string): boolean {
+export function setActiveAgentSessionId(id: string, agentId?: string): boolean {
   if (typeof id !== 'string' || id.length === 0) return false;
-  if (!getStoredSessions().some(session => session.id === id)) return false;
+  const target = getStoredSessions().find(session => session.id === id);
+  if (!target) return false;
+
+  if (agentId) setLastSessionForAgent(agentId, id);
 
   const storage = getStorage();
   if (!storage) return false;

@@ -49,8 +49,10 @@ import {
 } from '@/lib/workspace-task-service';
 import { cn } from '@/lib/utils';
 import { BA_RANDOM_URL, BING_WALLPAPER_URL } from '@/lib/constants';
-import { getActiveAgentSessionId, setActiveAgentSessionId } from '@/lib/agent-sessions';
+import { getActiveAgentSessionId, setActiveAgentSessionId, listAgentSessionsForAgent, defaultSessionIdForAgent } from '@/lib/agent-sessions';
 import { setAgentSession } from '@/lib/agent-context-store';
+import { DEFAULT_AGENT_ID, getCurrentAgentId, setCurrentAgentId, setLastSessionForAgent } from '@/lib/nova-agents';
+import { setMemoryAgent } from '@/lib/nova-memory';
 
 export function WorkspaceShell() {
   const queueStatus = useQueueStatus();
@@ -73,11 +75,14 @@ export function WorkspaceShell() {
   const galleryConfig = usePromptGalleryConfig();
   const promptGallery = usePromptGalleryAccess(galleryConfig.mode, galleryConfig.passwordEnabled, setError, () => setActiveTab('prompt-gallery'));
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [currentAgent, setCurrentAgent] = useState<string>(() => getCurrentAgentId());
   const [agentSidebarOpen, setAgentSidebarOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    const sessionId = getActiveAgentSessionId();
+    const agentId = getCurrentAgentId();
+    setMemoryAgent(agentId);
+    const sessionId = getActiveAgentSessionId(agentId);
 
     void Promise.resolve(setAgentSession(sessionId)).then(() => {
       if (!cancelled) setActiveSessionId(sessionId);
@@ -91,9 +96,27 @@ export function WorkspaceShell() {
   const handleAgentSessionChange = useCallback(async (sessionId: string) => {
     if (!sessionId || sessionId === activeSessionId) return;
     await setAgentSession(sessionId);
-    setActiveAgentSessionId(sessionId);
+    setActiveAgentSessionId(sessionId, currentAgent);
+    setLastSessionForAgent(currentAgent, sessionId);
     setActiveSessionId(sessionId);
-  }, [activeSessionId]);
+  }, [activeSessionId, currentAgent]);
+
+  /**
+   * 切类目：换记忆 + 换到该类目上次用的会话。
+   * 工作区按 `${agent}:${session}` 重挂载，对话/图片/记忆全部重新加载，
+   * 保证不会把上一个类目的记忆或对话带过来。
+   */
+  const handleAgentChange = useCallback(async (agentId: string) => {
+    if (!agentId || agentId === currentAgent) return;
+    setCurrentAgentId(agentId);
+    setMemoryAgent(agentId);
+    const sessionId = getActiveAgentSessionId(agentId) || defaultSessionIdForAgent(agentId);
+    await setAgentSession(sessionId);
+    setActiveAgentSessionId(sessionId, agentId);
+    setLastSessionForAgent(agentId, sessionId);
+    setCurrentAgent(agentId);
+    setActiveSessionId(sessionId);
+  }, [currentAgent]);
 
   // Toast state
   const [toasts, setToasts] = useState<ToastData[]>([]);
@@ -432,12 +455,14 @@ export function WorkspaceShell() {
                     <SessionSwitcher
                       activeSessionId={activeSessionId}
                       onSessionChange={handleAgentSessionChange}
+                      agentId={currentAgent}
+                      onAgentChange={handleAgentChange}
                       mobileOpen={agentSidebarOpen}
                       onMobileOpenChange={setAgentSidebarOpen}
                     />
                     <div className="flex min-w-0 flex-1 flex-col">
                       <AgentChatWorkspace
-                        key={activeSessionId}
+                        key={`${currentAgent}:${activeSessionId}`}
                         activeSessionId={activeSessionId}
                         wideMode={wideMode}
                         disabled={!workspace.hasApiKey}

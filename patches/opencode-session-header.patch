@@ -1,0 +1,37 @@
+diff --git a/backend/server.js b/backend/server.js
+index 14a559d..04c6ca8 100644
+--- a/backend/server.js
++++ b/backend/server.js
+@@ -146,6 +146,20 @@ const CUSTOM_IMAGE_SIZE_LIMITS = {
+   maxPixels: 8294400,
+ };
+ const IS_DEV = process.env.NODE_ENV !== 'production';
++
++// === 本地补丁：opencode zen Go（Console Go）会话头 ===
++// 上游要求每个请求带 x-opencode-session，否则返回 400 MissingSessionID：
++//   {"error":{"type":"MissingSessionID","message":"...missing x-opencode-session..."}}
++// 这里只按 baseUrl 域名判定，仅对 opencode.ai 生效，不影响其它上游。
++// 详情与回滚方式见仓库根目录《部署说明-本地.md》。可用环境变量 NOVA_OPENCODE_SESSION 覆盖。
++const NOVA_OPENCODE_SESSION = String(process.env.NOVA_OPENCODE_SESSION || '').trim() || randomUUID();
++function isOpencodeZenBaseUrl(baseUrl) {
++  try {
++    return new URL(String(baseUrl || '')).hostname.toLowerCase().endsWith('opencode.ai');
++  } catch {
++    return false;
++  }
++}
+ const STATIC_DIR = path.join(__dirname, '..', 'frontend', 'out');
+ const IMAGE_DIR = process.env.NOVA_IMAGE_DIR || path.join(__dirname, 'nova-images');
+ // CDP 功能为启动级开关：默认关闭，显式置 true 时才提供 /api/nova/cdp/*。
+@@ -2910,6 +2924,11 @@ async function handleApi(req, res, pathname, searchParams) {
+           authHeaders['Authorization'] = `Bearer ${apiKey}`;
+         }
+ 
++        // 本地补丁：opencode zen Go 需要 x-opencode-session（否则 400 MissingSessionID）
++        if (isOpencodeZenBaseUrl(normalizedBaseUrl)) {
++          authHeaders['x-opencode-session'] = NOVA_OPENCODE_SESSION;
++        }
++
+         if (stream) {
+           authHeaders['Accept'] = 'text/event-stream';
+         }

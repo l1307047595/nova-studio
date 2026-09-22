@@ -25,6 +25,7 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { PluginsSettings } from '@/components/settings/PluginsSettings';
+import { UpdateChecker } from '@/components/settings/UpdateChecker';
 import { Button } from '@/components/ui/button';
 import { Select } from '@/components/ui/select';
 import { BackupProgress } from '@/components/BackupProgress';
@@ -498,16 +499,17 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, initialTab = 'm
           <TabsContent value="about" className="min-h-0 overflow-y-auto p-4 sm:p-6 space-y-4 mt-0">
             <div className="space-y-4 text-sm">
               <h3 className="text-lg font-medium">Nova Studio <span className="text-xs text-muted-foreground font-normal">v{process.env.NEXT_PUBLIC_APP_VERSION}</span></h3>
+              <UpdateChecker />
               <p className="text-sm text-muted-foreground">
                 项目地址：
                 {' '}
                 <a
-                  href="https://github.com/tianjiangqiji/nova-image-studio"
+                  href="https://github.com/l1307047595/nova-studio-release"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-1 text-primary hover:underline"
                 >
-                  tianjiangqiji/nova-image-studio <ExternalLink className="w-3 h-3" />
+                  l1307047595/nova-studio-release <ExternalLink className="w-3 h-3" />
                 </a>
               </p>
 
@@ -578,6 +580,13 @@ export function SettingsModal({ isOpen, onClose, onApiKeyChange, initialTab = 'm
                 <ul className="mt-3 list-disc list-inside space-y-2 text-muted-foreground">
                   <li>
                     项目仓库：
+                    {' '}
+                    <a href="https://github.com/l1307047595/nova-studio-release" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                      l1307047595/nova-studio-release <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </li>
+                  <li>
+                    原项目（AGPL-3.0 许可，署名按许可要求保留）：
                     {' '}
                     <a href="https://github.com/tianjiangqiji/nova-image-studio" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
                       tianjiangqiji/nova-image-studio <ExternalLink className="w-3 h-3" />

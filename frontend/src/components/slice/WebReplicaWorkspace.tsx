@@ -93,11 +93,12 @@ const EMPTY_TURN: LiveTurn = {
   path: '',
 };
 
-/** 可折叠的思考块。结束后自动收起，点击可展开回看。 */
+/** 可折叠的思考块。默认收起（思考过程不主动展示），点击才展开回看。 */
 function ThinkingBlock({ text, live }: { text: string; live: boolean }) {
   const [open, setOpen] = useState(false);
   const renderedText = useMemo(() => renderReasoning(text), [text]);
-  const expanded = live || open;
+  // 流式期间也不再自动展开：只保留「思考中…」这一行状态，内容要用户自己点开
+  const expanded = open;
   if (!text.trim()) return null;
   return (
     <div className="mr-6 rounded-lg border border-dashed border-border/70 bg-muted/40">

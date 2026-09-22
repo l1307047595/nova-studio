@@ -26,6 +26,13 @@ import {
 } from '@/lib/agent-chat-client';
 import { executeAgentCdpTool, purgeCdpProductImages } from '@/lib/agent-cdp-tools';
 import {
+  loadAgentMemory, latestUserQuery, appendMemoryEntry, listPendingDrafts,
+  approvePendingDraft, rejectPendingDraft, approveAllPendingDrafts,
+  queueMemoryDraft, isSessionAutoWriteEnabled, fetchMemoryEntries,
+  type MemoryNoteKind, type PendingDraft,
+} from '@/lib/nova-memory';
+import { sinkAgentMemory, buildSinkTranscript, draftMemoryNote, draftReviewProposals } from '@/lib/nova-memory-sink';
+import {
   AGENT_DEFAULT_IMAGE_MODEL_FALLBACK,
   extractProductLinks,
   normalizeProductKey,
@@ -62,6 +69,59 @@ import { getDefaultConfiguredTextModel } from '@/lib/model-endpoints';
 import { supportsAgentNativeWebSearch } from '@/lib/nova-text-protocol';
 
 export type AgentPhase = 'idle' | 'loading' | 'describing' | 'streaming' | 'proposal' | 'generating';
+
+/** 流式期间「正在生成的助手消息」的落库状态（思考过程也要能持久化） */
+interface LiveAssistantMessage {
+  id: string;
+  sessionId: string;
+  createdAt: number;
+  text: string;
+  reasoning: string;
+  /** 上次落库时间，用于节流 */
+  lastWrite: number;
+}
+
+function snapshotLiveMessage(live: LiveAssistantMessage): AgentMessage {
+  return {
+    id: live.id,
+    role: 'assistant',
+    text: live.text,
+    reasoning: live.reasoning || undefined,
+    createdAt: live.createdAt,
+  };
+}
+
+/**
+ * 加载会话时的自愈：上次回复没写完（客户端中途关闭/刷新）会留下 streaming:true 的行，
+ * 标成「上次回复中断」并清掉落库残留的空气泡（没有正文、没有图片的助手消息）。
+ */
+function normalizeLoadedMessages(messages: AgentMessage[]): {
+  messages: AgentMessage[];
+  repaired: AgentMessage[];
+  droppedIds: string[];
+} {
+  const repaired: AgentMessage[] = [];
+  const droppedIds: string[] = [];
+  const out: AgentMessage[] = [];
+  for (const message of messages) {
+    const emptyAssistant = message.role === 'assistant'
+      && !message.text?.trim()
+      && !(message.imageIds && message.imageIds.length > 0)
+      && !message.taskId;
+    if (emptyAssistant) {
+      droppedIds.push(message.id);
+      continue;
+    }
+    if (message.streaming) {
+      const healed: AgentMessage = { ...message, streaming: false, text: `${message.text}\n\n（上次回复中断）` };
+      repaired.push(healed);
+      out.push(healed);
+      continue;
+    }
+    out.push(message);
+  }
+  return { messages: out, repaired, droppedIds };
+}
 
 export type AgentCheckResult = 'idle' | 'completed' | 'processing' | 'queued' | 'failed' | 'error';
 
@@ -208,6 +268,18 @@ async function resultImageToBlob(ref: string): Promise<Blob> {
 
 export function useAgentChat(sessionId = 'default') {
   const sessionIdRef = useRef(sessionId);
+
+  // ===== 记忆读写时机控制 =====
+  // 读：会话开始 / 新图上传（见 loadAgentMemory 调用点）；写：空闲心跳（见下方 useEffect）
+  const MEMORY_IDLE_MS = 3 * 60 * 1000;   // 3 分钟无新对话才算空闲
+  const memoryActivityRef = useRef(Date.now());
+  const memoryUndepositedRef = useRef(0);
+  const memorySinkBusyRef = useRef(false);
+  // 待确认草稿（心跳只入队，你确认后才写进真记忆文件）
+  const [pendingDrafts, setPendingDrafts] = useState<PendingDraft[]>([]);
+  // 复盘状态（累计新增 N 条就提醒）
+  const [memoryReview, setMemoryReview] = useState<{ due: boolean; count: number; threshold: number } | null>(null);
+  const [memoryReviewBusy, setMemoryReviewBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [hasApiKey] = useState(() => hasAnyApiKey());
   const [phase, setPhase] = useState<AgentPhase>('idle');
@@ -329,6 +401,61 @@ export function useAgentChat(sessionId = 'default') {
     if (reasoning) setStreamingReasoning(prev => prev + reasoning);
   }, []);
 
+  // ===== 流式过程的落库（思考中也要有持久性） =====
+  // 背景：以前助手消息只在 onDone 才落库，而且 onDone 开头有「会话已切走就 return」，
+  // 于是思考过程中换会话/刷新会整段回复丢失。现在：开流就登记一条助手消息（streaming:true），
+  // 流式期间按间隔覆盖写入，结束时用同一个 id 写最终文本——不产生重复气泡。
+
+  /** 写进「发起本次回复的会话」。用该会话自己的当前 generation，故切走会话也不会被作废拦下 */
+  const persistMessageToSession = useCallback(async (message: AgentMessage, sessionId: string) => {
+    try {
+      await putMessage(message, sessionId, getAgentSessionGeneration(sessionId));
+    } catch {
+      // 落库失败不打断对话；下一次间隔写入会再试
+    }
+  }, []);
+
+  const STREAM_PERSIST_INTERVAL_MS = 1200;
+
+  const beginLiveMessage = useCallback((sessionId: string): LiveAssistantMessage => {
+    const live: LiveAssistantMessage = {
+      id: generateUUID(),
+      sessionId,
+      createdAt: Date.now(),
+      text: '',
+      reasoning: '',
+      lastWrite: Date.now(),
+    };
+    void persistMessageToSession({ ...snapshotLiveMessage(live), streaming: true }, sessionId);
+    return live;
+  }, [persistMessageToSession]);
+
+  /** 流式期间的节流写入（默认 1.2 秒一次），避免每个 token 都写一次 IndexedDB */
+  const tickLiveMessage = useCallback((live: LiveAssistantMessage) => {
+    const now = Date.now();
+    if (now - live.lastWrite < STREAM_PERSIST_INTERVAL_MS) return;
+    live.lastWrite = now;
+    void persistMessageToSession({ ...snapshotLiveMessage(live), streaming: true }, live.sessionId);
+  }, [persistMessageToSession]);
+
+  /** 收尾写入：同一 id 覆盖，streaming 去掉，表示这条回复已经结束 */
+  const finishLiveMessage = useCallback((live: LiveAssistantMessage, text?: string, reasoning?: string) => {
+    if (typeof text === 'string') live.text = text;
+    if (typeof reasoning === 'string') live.reasoning = reasoning;
+    live.lastWrite = Date.now();
+    void persistMessageToSession(snapshotLiveMessage(live), live.sessionId);
+  }, [persistMessageToSession]);
+
+  /** 没有内容的占位行（提案分支 / 空回复）直接删掉，别在会话里留空气泡 */
+  const dropLiveMessage = useCallback((live: LiveAssistantMessage) => {
+    // 存储层任何异常都不能打断对话；也不能假设它一定返回 Promise
+    try {
+      void Promise.resolve(deleteMessages([live.id], live.sessionId)).catch(() => undefined);
+    } catch {
+      // 忽略：残留的行会在下次加载时被 normalizeLoadedMessages 清掉
+    }
+  }, []);
+
   useEffect(() => {
     mountedRef.current = true;
     let cancelled = false;
@@ -341,9 +468,18 @@ export function useAgentChat(sessionId = 'default') {
         loadPendingGenerationTasks(sessionIdRef.current),
       ]);
       if (cancelled || !mountedRef.current) return;
-      messagesRef.current = session.messages;
+      // 自愈：上次回复没写完的（streaming 行）标成「上次回复中断」；空气泡清掉并落库修正
+      const healed = normalizeLoadedMessages(session.messages);
+      if (healed.repaired.length > 0 || healed.droppedIds.length > 0) {
+        const gen = getAgentSessionGeneration(sessionIdRef.current);
+        for (const message of healed.repaired) void putMessage(message, sessionIdRef.current, gen);
+        if (healed.droppedIds.length > 0) {
+          void deleteMessages(healed.droppedIds, sessionIdRef.current).catch(() => undefined);
+        }
+      }
+      messagesRef.current = healed.messages;
       imagesRef.current = session.images;
-      setMessages(session.messages);
+      setMessages(healed.messages);
       setImages(session.images);
       seqRef.current = session.images.reduce((max, img) => Math.max(max, parseImgSeq(img.imgId)), 0);
       const validImageModel = resolveValidAgentImageModel(session.imageModel);
@@ -388,9 +524,262 @@ export function useAgentChat(sessionId = 'default') {
       }
 
       setReady(true);
+      // 会话开始：读一次本类目记忆（按规格，会话中途不再读取）
+      void loadAgentMemory({
+        sessionId: sessionIdRef.current,
+        query: latestUserQuery(session.messages.map(item => ({ role: item.role, text: item.text }))),
+      });
+      void listPendingDrafts().then(store => setPendingDrafts(store.items));   // 待确认角标
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // ===== 记忆沉淀心跳 =====
+  // 触发条件：无进行中的生成任务 && 空闲到阈值 && 本会话有未沉淀变更
+  // 空闲阈值可调（不写死）：localStorage['nova-memory-idle-ms']，默认 3 分钟
+  useEffect(() => {
+    const pushSinkLog = (entry: Record<string, unknown>) => {
+      const holder = window as unknown as { __memorySinkLog?: Array<Record<string, unknown>> };
+      holder.__memorySinkLog = holder.__memorySinkLog || [];
+      holder.__memorySinkLog.push({ at: new Date().toISOString(), ...entry });
+      if (holder.__memorySinkLog.length > 40) holder.__memorySinkLog.shift();
+    };
+    const timer = window.setInterval(() => {
+      const idleMs = Number(localStorage.getItem('nova-memory-idle-ms')) || MEMORY_IDLE_MS;
+      if (memorySinkBusyRef.current) return;
+      if (memoryUndepositedRef.current === 0) {
+        return;
+      }
+      if (activeGenerationCount > 0) {
+        pushSinkLog({ skip: '有进行中的生成任务', activeGenerationCount });
+        return;
+      }
+      const idleFor = Date.now() - memoryActivityRef.current;
+      if (idleFor < idleMs) {
+        pushSinkLog({ skip: '未到空闲阈值', idleFor, idleMs });
+        return;
+      }
+      let configured: ReturnType<typeof getAgentTextModelConfig>;
+      try {
+        configured = getAgentTextModelConfig();
+      } catch {
+        pushSinkLog({ skip: '未配置文本模型' });
+        return;   // 没配文本模型就不沉淀，不报错打扰
+      }
+      const transcript = buildSinkTranscript(messagesRef.current.map(item => ({ role: item.role, text: item.text })));
+      if (!transcript.trim()) return;
+      memorySinkBusyRef.current = true;
+      pushSinkLog({ attempt: true, undeposited: memoryUndepositedRef.current, transcriptChars: transcript.length });
+      void (async () => {
+        // 先拿「你驳回过、别再提」的黑名单，再让模型起草
+        const store = await listPendingDrafts();
+        return sinkAgentMemory({
+          apiKey: configured.apiKey,
+          model: configured.modelId,
+          protocol: configured.protocol,
+          baseUrl: configured.baseUrl,
+          sessionId: sessionIdRef.current,
+          transcript,
+          lastUserMessage: latestUserQuery(messagesRef.current.map(item => ({ role: item.role, text: item.text }))),
+          rejectedTexts: store.rejected,
+          sessionAutoWrite: isSessionAutoWriteEnabled(),
+        });
+      })().then(result => {
+        pushSinkLog({
+          result: result.ok ? 'ok' : 'failed',
+          feedback: result.feedback,
+          library: result.library,
+          proposals: result.proposals,
+          sessionWritten: result.sessionWritten,
+          queued: result.queued,
+          error: result.error,
+        });
+        if (result.ok) {
+          memoryUndepositedRef.current = 0;
+          void listPendingDrafts().then(next => setPendingDrafts(next.items));   // 刷新待确认角标
+        }
+      }).catch(error => {
+        pushSinkLog({ result: 'threw', error: error instanceof Error ? error.message : String(error) });
+      }).finally(() => {
+        memorySinkBusyRef.current = false;
+      });
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [activeGenerationCount, getAgentTextModelConfig]);
+
+  // ===== 待确认队列的操作（都在你手里：确认 / 驳回 / 全部确认） =====
+  const refreshPendingDrafts = useCallback(async () => {
+    const store = await listPendingDrafts();
+    setPendingDrafts(store.items);
+    if (store.review) setMemoryReview({ due: store.review.due, count: store.review.count, threshold: store.review.threshold });
+    return store.items;
+  }, []);
+
+  /**
+   * 复盘：把最近新增的纠错/案例交给 AI，起草「该升级进基础规则」的建议，进待确认队列。
+   * 建议本身不会自动改规则——你确认 + 采纳后才追加进 identity。
+   */
+  const runMemoryReview = useCallback(async (): Promise<{ ok: boolean; count: number; error?: string }> => {
+    setMemoryReviewBusy(true);
+    try {
+      let configured: ReturnType<typeof getAgentTextModelConfig>;
+      try {
+        configured = getAgentTextModelConfig();
+      } catch {
+        return { ok: false, count: 0, error: '请先在设置里配置 Agent 默认文本模型' };
+      }
+      const view = await fetchMemoryEntries();
+      if (!view) return { ok: false, count: 0, error: '读取记忆失败' };
+      const since = view.review.lastReviewAt || '';
+      const recent = [...view.entries.feedback, ...view.entries.library]
+        .filter(entry => {
+          const match = entry.match(/^-\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]/);
+          return match ? match[1] > since : true;
+        })
+        .slice(-30);
+      if (recent.length === 0) return { ok: false, count: 0, error: '最近没有新增的纠错/案例，暂时不用复盘' };
+      const proposals = await draftReviewProposals({
+        apiKey: configured.apiKey,
+        model: configured.modelId,
+        protocol: configured.protocol,
+        baseUrl: configured.baseUrl,
+        transcript: recent.join('\n\n'),
+      });
+      if (proposals.length === 0) return { ok: false, count: 0, error: 'AI 没找出值得固化的规则' };
+      let queued = 0;
+      for (const text of proposals) {
+        const result = await queueMemoryDraft('proposal', text, { source: 'review', session: sessionIdRef.current });
+        if (result.ok) queued += 1;
+      }
+      await refreshPendingDrafts();
+      return { ok: true, count: queued };
+    } finally {
+      setMemoryReviewBusy(false);
+    }
+  }, [getAgentTextModelConfig, refreshPendingDrafts]);
+
+  const approveDraft = useCallback(async (
+    id: string,
+    override: { kind?: MemoryNoteKind | 'session'; text?: string; session?: string } = {},
+  ) => {
+    const result = await approvePendingDraft(id, override);
+    if (result.ok) {
+      await refreshPendingDrafts();
+      // 写进记忆了，立刻重读一次让后面几轮注入带上
+      await loadAgentMemory({
+        sessionId: sessionIdRef.current,
+        query: latestUserQuery(messagesRef.current.map(item => ({ role: item.role, text: item.text }))),
+      });
+    }
+    return result;
+  }, [refreshPendingDrafts]);
+
+  const rejectDraft = useCallback(async (id: string) => {
+    const result = await rejectPendingDraft(id);
+    if (result.ok) await refreshPendingDrafts();
+    return result;
+  }, [refreshPendingDrafts]);
+
+  const approveAllDrafts = useCallback(async () => {
+    const result = await approveAllPendingDrafts();
+    if (result.ok) {
+      await refreshPendingDrafts();
+      await loadAgentMemory({
+        sessionId: sessionIdRef.current,
+        query: latestUserQuery(messagesRef.current.map(item => ({ role: item.role, text: item.text }))),
+      });
+    }
+    return result;
+  }, [refreshPendingDrafts]);
+
+  /**
+   * 「这张很好 → 存为案例」：拿这张图的描述当素材，让 AI 起草一条可复用案例，进待确认队列。
+   * 你确认了才真的写进 library.md。
+   */
+  const draftCaseFromImage = useCallback(async (img: { imgId: string; description?: string }) => {
+    let configured: ReturnType<typeof getAgentTextModelConfig>;
+    try {
+      configured = getAgentTextModelConfig();
+    } catch {
+      return { ok: false, error: '请先在设置里配置 Agent 默认文本模型' };
+    }
+    const description = String(img.description || '').trim();
+    const transcript = [
+      `【通过的图】${img.imgId}`,
+      description ? `图片内容：${description}` : '',
+      latestUserQuery(messagesRef.current.map(item => ({ role: item.role, text: item.text })))
+        ? `用户当时的诉求：${latestUserQuery(messagesRef.current.map(item => ({ role: item.role, text: item.text })))}`
+        : '',
+    ].filter(Boolean).join('\n');
+    const draft = await draftMemoryNote({
+      apiKey: configured.apiKey,
+      model: configured.modelId,
+      protocol: configured.protocol,
+      baseUrl: configured.baseUrl,
+      transcript,
+      preferredKind: 'library',
+    });
+    if (!draft) return { ok: false, error: 'AI 没能从这张图提炼出案例' };
+    const queued = await queueMemoryDraft('library', draft.text, { source: 'image', session: sessionIdRef.current });
+    if (queued.ok) await refreshPendingDrafts();
+    return queued;
+  }, [getAgentTextModelConfig, refreshPendingDrafts]);
+
+  // 新图上传 / 抓图入库后，重新读一次记忆（规格：只要我有新图上传就读取记忆）
+  const reloadMemoryForCurrentSession = useCallback(() => {
+    memoryActivityRef.current = Date.now();
+    memoryUndepositedRef.current += 1;
+    void loadAgentMemory({
+      sessionId: sessionIdRef.current,
+      query: latestUserQuery(messagesRef.current.map(item => ({ role: item.role, text: item.text }))),
+    });
+  }, []);
+
+  /**
+   * 手动记一条（「记一条」按钮用）：你主动写的记忆，追加进本类目记忆。
+   * 写完立刻重读一次，让后面几轮的注入马上带上这条——自动写入仍然只在空闲心跳发生。
+   */
+  const rememberMemoryEntry = useCallback(async (
+    kind: 'feedback' | 'library' | 'proposal',
+    text: string,
+  ): Promise<{ ok: boolean; error?: string }> => {
+    const result = await appendMemoryEntry(kind, text);
+    if (result.ok) {
+      await loadAgentMemory({
+        sessionId: sessionIdRef.current,
+        query: latestUserQuery(messagesRef.current.map(item => ({ role: item.role, text: item.text }))),
+      });
+    }
+    return result;
+  }, []);
+
+  /**
+   * 「记一条」的 AI 起草：从当前对话里提炼一条记忆，填进框里给你审。
+   * 你改完再点写入 —— 你不点，什么都不写。
+   */
+  const draftMemoryNoteForReview = useCallback(async (
+    kind: MemoryNoteKind,
+  ): Promise<{ kind: MemoryNoteKind; text: string } | null> => {
+    let configured: ReturnType<typeof getAgentTextModelConfig>;
+    try {
+      configured = getAgentTextModelConfig();
+    } catch {
+      return null;
+    }
+    const transcript = buildSinkTranscript(
+      messagesRef.current.map(item => ({ role: item.role, text: item.text })),
+      20,
+    );
+    if (!transcript.trim()) return null;
+    return draftMemoryNote({
+      apiKey: configured.apiKey,
+      model: configured.modelId,
+      protocol: configured.protocol,
+      baseUrl: configured.baseUrl,
+      transcript,
+      preferredKind: kind,
+    });
+  }, [getAgentTextModelConfig]);
 
   const appendMessage = useCallback(async (
     message: AgentMessage,
@@ -402,6 +791,9 @@ export function useAgentChat(sessionId = 'default') {
     messagesRef.current = [...messagesRef.current, message];
     setMessages(prev => [...prev, message]);
     await putMessage(message, sessionIdRef.current, sessionGeneration);
+    // 记忆：有对话活动 → 刷新空闲计时，并标记本会话有未沉淀变更
+    memoryActivityRef.current = Date.now();
+    memoryUndepositedRef.current += 1;
     return isSessionCurrent(sessionGeneration);
   }, [isSessionCurrent]);
 
@@ -500,13 +892,15 @@ export function useAgentChat(sessionId = 'default') {
       void runDescribe().then(description => {
         void patchImageDescription(imgId, description, sessionGeneration);
       }).catch(() => undefined);
+      reloadMemoryForCurrentSession();
       return record;
     }
 
     record.description = await runDescribe();
     if (!await registerImage(record, sessionGeneration)) throw new Error('已停止');
+    reloadMemoryForCurrentSession();
     return record;
-  }, [getAgentTextModelConfig, isSessionCurrent, nextImgId, patchImageDescription, registerImage]);
+  }, [getAgentTextModelConfig, isSessionCurrent, nextImgId, patchImageDescription, registerImage, reloadMemoryForCurrentSession]);
 
   /**
    * CDP 工具执行器：执行浏览器工具；抓图工具返回的 localUrls 逐张登记进图片目录，
@@ -648,6 +1042,10 @@ export function useAgentChat(sessionId = 'default') {
     setStreamingText('');
     setStreamingReasoning('');
 
+    // 思考过程也要有持久性：先把这条助手消息登记进「发起它的会话」，
+    // 流式期间按间隔更新它，收尾时用同一个 id 覆盖成最终文本。
+    const live = beginLiveMessage(sessionIdRef.current);
+
     let reasoningBuf = '';
 
     const handle = streamAgentChat(
@@ -666,19 +1064,29 @@ export function useAgentChat(sessionId = 'default') {
       },
       {
         onDelta: token => {
+          // 先记进落库状态（与是否停留在本会话无关），界面更新才需要判会话
+          live.text += token;
+          tickLiveMessage(live);
           if (isSessionCurrent(sessionGeneration)) appendStreamingToken('text', token);
         },
         onReasoning: token => {
+          live.reasoning += token;
+          tickLiveMessage(live);
           if (!isSessionCurrent(sessionGeneration)) return;
           reasoningBuf += token;
           appendStreamingToken('reasoning', token);
         },
         onToolActivity: text => {
+          live.reasoning += text;
+          tickLiveMessage(live);
           if (!isSessionCurrent(sessionGeneration)) return;
           reasoningBuf += text;
           appendStreamingToken('reasoning', text);
         },
         onResetAttempt: () => {
+          live.text = '';
+          live.reasoning = '';
+          tickLiveMessage(live);
           if (!isSessionCurrent(sessionGeneration)) return;
           reasoningBuf = '';
           flushAndCancelRaf();
@@ -686,7 +1094,15 @@ export function useAgentChat(sessionId = 'default') {
           setStreamingReasoning('');
         },
         onDone: (fullText, parsedProposal, parsedProposals) => {
-          if (!isSessionCurrent(sessionGeneration)) return;
+          const staleNow = !isSessionCurrent(sessionGeneration);
+          const finalText = (fullText || live.text || '').trim();
+          const finalReasoning = (reasoningBuf || live.reasoning || '').trim();
+          if (staleNow) {
+            // 会话已切走：界面/提案都不处理，但这轮回复属于发起它的会话，必须落库
+            if (finalText || finalReasoning) finishLiveMessage(live, finalText, finalReasoning);
+            else dropLiveMessage(live);
+            return;
+          }
           streamHandleRef.current = null;
           flushAndCancelRaf();
           setStreamingText('');
@@ -720,9 +1136,11 @@ export function useAgentChat(sessionId = 'default') {
               isReedit: false,
               queuedProposals: rest,
             }, sessionIdRef.current, sessionGeneration);
+            // 这条不是对话气泡（内容进了提案卡），把流式期间的占位行删掉
+            dropLiveMessage(live);
           } else {
             void appendMessage({
-              id: generateUUID(),
+              id: live.id,
               role: 'assistant',
               text: text.length > 0
                 ? text
@@ -730,13 +1148,17 @@ export function useAgentChat(sessionId = 'default') {
                   ? '浏览器操作已结束，但模型没有给出文字回复。请再发一条继续。'
                   : '模型没有返回内容。请重试一次。'),
               reasoning: reasoning.length > 0 ? reasoning : undefined,
-              createdAt: Date.now(),
+              createdAt: live.createdAt,
             }, sessionGeneration);
             setPhase('idle');
           }
         },
         onError: err => {
-          if (!isSessionCurrent(sessionGeneration)) return;
+          const staleNow = !isSessionCurrent(sessionGeneration);
+          // 已经流出来的内容先落库（切走会话也不丢），空回复则不留占位行
+          if (live.text.trim() || live.reasoning.trim()) finishLiveMessage(live, live.text.trim(), live.reasoning.trim());
+          else dropLiveMessage(live);
+          if (staleNow) return;
           streamHandleRef.current = null;
           flushAndCancelRaf();
           setStreamingText('');
@@ -747,7 +1169,7 @@ export function useAgentChat(sessionId = 'default') {
       configured.baseUrl,
     );
     streamHandleRef.current = handle;
-  }, [appendMessage, appendStreamingToken, cdpEnabled, cdpExecutor, flushAndCancelRaf, getAgentTextModelConfig, isSessionCurrent, persistStreamFailure, webSearchEnabled]);
+  }, [appendMessage, appendStreamingToken, beginLiveMessage, cdpEnabled, cdpExecutor, dropLiveMessage, finishLiveMessage, flushAndCancelRaf, getAgentTextModelConfig, isSessionCurrent, persistStreamFailure, tickLiveMessage, webSearchEnabled]);
 
   const sendMessage = useCallback(async (text: string, uploads: PendingUpload[], imageReferences?: string[]) => {
     const sessionGeneration = sessionGenerationRef.current;
@@ -1290,11 +1712,16 @@ export function useAgentChat(sessionId = 'default') {
     selectedImageIds: string[],
     model: string,
     params: AgentResolvedLayout,
+    /** 英文生图版提示词（与 finalPrompt 对应）。用户改过中文版时调用方会传 undefined，此时直接发中文 */
+    finalPromptEn?: string,
   ) => {
     if (phaseRef.current !== 'proposal') return;
     const generationEpoch = generationEpochRef.current;
     const sessionGeneration = sessionGenerationRef.current;
     const prompt = finalPrompt.trim();
+    const promptEn = (finalPromptEn || '').trim() || undefined;
+    // 真正发给生图模型的那一份：有英文用英文，没有就用中文
+    const generationPrompt = promptEn || prompt;
     if (prompt.length === 0) {
       setError('提示词不能为空');
       return;
@@ -1304,6 +1731,7 @@ export function useAgentChat(sessionId = 'default') {
     const approvedProposal: AgentProposal = {
       action: proposal?.action ?? (selectedImageIds.length > 0 ? 'edit' : 'generate'),
       prompt,
+      promptEn,
       referencedImageIds: selectedImageIds,
       reason: proposal?.reason ?? '',
       productKey: proposal?.productKey,
@@ -1352,7 +1780,7 @@ export function useAgentChat(sessionId = 'default') {
         baseUrl: provider.baseUrl,
         protocol: provider.protocol,
         mode: references.length > 0 ? 'image-to-image' : 'text-to-image',
-        prompt,
+        prompt: generationPrompt,
         outputSize: layout.outputSize,
         customSize: layout.outputSize === 'auto' ? undefined : params.customSize,
         aspectRatio: layout.aspectRatio,
@@ -1778,6 +2206,17 @@ export function useAgentChat(sessionId = 'default') {
     clearSession,
     clearContext,
     redescribeImage,
+    rememberMemoryEntry,
+    draftMemoryNoteForReview,
+    pendingDrafts,
+    refreshPendingDrafts,
+    approveDraft,
+    rejectDraft,
+    approveAllDrafts,
+    draftCaseFromImage,
+    memoryReview,
+    memoryReviewBusy,
+    runMemoryReview,
     dismissError: () => setError(null),
   };
 }

@@ -11,6 +11,7 @@ import {
   FileText,
   Pencil,
   RefreshCw,
+  Star,
   Trash2,
   Undo2,
   User,
@@ -21,7 +22,7 @@ import { AgentGenerationResult } from '@/components/agent/AgentGenerationResult'
 import { HistoryImagePreview } from '@/components/workspace/results/HistoryImagePreview';
 import { ImageHoverActions } from '@/components/workspace/results/ImageHoverActions';
 import { cn, clampIndex } from '@/lib/utils';
-import { renderReasoning, renderMarkdown } from '@/lib/render-reasoning';
+import { renderMarkdown } from '@/lib/render-reasoning';
 import { handleMarkdownCodeCopyButtonClick } from '@/lib/markdown-code-copy';
 import { getAgentImageBytes } from '@/lib/agent-context-store';
 import type { AgentMessage, AgentImageRecord } from '@/lib/agent-chat-config';
@@ -42,6 +43,8 @@ export interface AgentMessageBubbleProps {
   /** 仅最后一条用户消息会拿到该回调；见 useAgentChat 的 retryableMessageId */
   onRetry?: () => void;
   onRedescribe?: (imgId: string) => Promise<string>;
+  /** 「这张很好 → 存为案例」：把这张图交给 AI 起草一条可复用案例，进待确认队列 */
+  onSaveAsCase?: (img: AgentImageRecord) => void;
 }
 
 function getUsableDescription(description: string): string {
@@ -75,12 +78,12 @@ export function AgentMessageBubble({
   onRollback,
   onRetry,
   onRedescribe,
+  onSaveAsCase,
   sessionId,
 }: AgentMessageBubbleProps) {
   const [previewImages, setPreviewImages] = useState<string[] | null>(null);
   const [previewSourceImages, setPreviewSourceImages] = useState<AgentImageRecord[]>([]);
   const [previewIndex, setPreviewIndex] = useState(0);
-  const [reasoningOpen, setReasoningOpen] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
   const [descDialogImg, setDescDialogImg] = useState<{ imgId: string; description: string } | null>(null);
   const [descCopied, setDescCopied] = useState(false);
@@ -112,7 +115,6 @@ export function AgentMessageBubble({
 
   // 缓存 Markdown / Reasoning 渲染结果，避免父组件重渲染时重复执行正则
   const renderedMarkdown = useMemo(() => renderMarkdown(message.text), [message.text]);
-  const renderedReasoning = useMemo(() => message.reasoning ? renderReasoning(message.reasoning) : '', [message.reasoning]);
 
   const revokePreviewUrls = useCallback(() => {
     for (const url of previewObjectUrlsRef.current) URL.revokeObjectURL(url);
@@ -208,26 +210,9 @@ export function AgentMessageBubble({
         {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
       </div>
       <div className={cn('flex min-w-0 max-w-[80%] flex-col gap-2', isUser && 'items-end')}>
-        {!isUser && message.reasoning && !isGenerationResult && (
-          <div className="rounded-xl border border-border/60 bg-muted/30">
-            <button
-              type="button"
-              onClick={() => setReasoningOpen(prev => !prev)}
-              className="flex w-full items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
-            >
-              <Brain className="h-3.5 w-3.5" />
-              思考过程
-              <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', reasoningOpen && 'rotate-180')} />
-            </button>
-            {reasoningOpen && (
-              <div className="border-t border-border/60 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
-                <div dangerouslySetInnerHTML={{ __html: renderedReasoning }} />
-              </div>
-            )}
-          </div>
-        )}
+        {/* 思考过程不再展示（message.reasoning 仍然存库，只是不渲染） */}
         {message.text && isGenerationResult ? (
-          <AgentGenerationResult text={message.text} reasoning={message.reasoning} />
+          <AgentGenerationResult text={message.text} />
         ) : message.text ? (
           <div className={cn(
             'rounded-2xl px-3.5 py-2.5 text-sm',
@@ -263,18 +248,32 @@ export function AgentMessageBubble({
                   showAddToAssets
                   showUseAsReference
                   extraActions={(
-                    <button
-                      type="button"
-                      onClick={event => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        setDescDialogImg({ imgId: img.imgId, description: img.description || 'AI 未生成描述' });
-                      }}
-                      className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-white shadow-sm backdrop-blur-sm transition-colors hover:bg-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
-                      title="查看描述"
-                    >
-                      <FileText className="h-3 w-3" />
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          onSaveAsCase?.(img);
+                        }}
+                        className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-white shadow-sm backdrop-blur-sm transition-colors hover:bg-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+                        title="这张很好 → 让 AI 起草一条案例，进待确认"
+                      >
+                        <Star className="h-3 w-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={event => {
+                          event.preventDefault();
+                          event.stopPropagation();
+                          setDescDialogImg({ imgId: img.imgId, description: img.description || 'AI 未生成描述' });
+                        }}
+                        className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-white shadow-sm backdrop-blur-sm transition-colors hover:bg-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+                        title="查看描述"
+                      >
+                        <FileText className="h-3 w-3" />
+                      </button>
+                    </>
                   )}
                 />
               </div>

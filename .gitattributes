@@ -1,0 +1,21 @@
+# Windows 上 git 默认会把文本文件检出成 CRLF，而这些脚本必须保持 LF：
+# .sh / .command 在 macOS 上带 CRLF 会直接报 bad interpreter；
+# .vbs 必须是 ANSI/UTF-16 且 CRLF，.bat 必须 CRLF——交给各自平台默认即可。
+*.sh       text eol=lf
+*.command  text eol=lf
+*.ps1      text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.patch    text eol=lf
+
+# 二进制/生成物明确标注，避免 git 做行尾转换
+*.exe      binary
+*.blockmap binary
+*.ico      binary
+*.icns     binary
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.webp     binary
+*.woff     binary
+*.woff2    binary

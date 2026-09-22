@@ -11,6 +11,8 @@ import {
   Eraser,
   FileText,
   Globe,
+  Library,
+  ListChecks,
   ImagePlus,
   Layers,
   Loader2,
@@ -37,6 +39,9 @@ import { AgentProposalCard } from '@/components/agent/AgentProposalCard';
 import { MemoizedAgentMessageBubble } from '@/components/agent/AgentMessageBubble';
 import { AgentInputEditor, type AgentInputEditorHandle } from '@/components/agent/AgentInputEditor';
 import { AgentAssetPickerDialog, AgentTextAssetPickerDialog } from '@/components/agent/AgentAssetPickerDialog';
+import { AgentMemoryNoteDialog, type MemoryNoteKind } from '@/components/agent/AgentMemoryNoteDialog';
+import { AgentMemoryPendingPanel } from '@/components/agent/AgentMemoryPendingPanel';
+import { AgentMemoryViewerPanel } from '@/components/agent/AgentMemoryViewerPanel';
 import { cn } from '@/lib/utils';
 import { renderReasoning, renderMarkdown } from '@/lib/render-reasoning';
 import { handleMarkdownCodeCopyButtonClick } from '@/lib/markdown-code-copy';
@@ -132,6 +137,14 @@ export function AgentChatWorkspace({
 
   const [toasts, setToasts] = useState<ToastData[]>([]);
   const toastIdRef = useRef(0);
+  // 「记一条」：手动写记忆的开关与写入中状态
+  const [memoryNoteOpen, setMemoryNoteOpen] = useState(false);
+  const [memoryNoteSaving, setMemoryNoteSaving] = useState(false);
+  // 待确认面板
+  const [memoryPendingOpen, setMemoryPendingOpen] = useState(false);
+  const [memoryPendingBusyId, setMemoryPendingBusyId] = useState('');
+  // 记忆查看/编辑面板
+  const [memoryViewerOpen, setMemoryViewerOpen] = useState(false);
   const showToast = useCallback((message: string, type: ToastData['type']) => {
     const id = `agent-toast-${++toastIdRef.current}`;
     setToasts(prev => [...prev, { id, message, type }]);
@@ -657,6 +670,17 @@ export function AgentChatWorkspace({
             message={message}
             imageMap={imageMap}
             sessionId={activeSessionId}
+            onSaveAsCase={(img: { imgId: string; description?: string }) => {
+              showToast('正在让 AI 起草这条案例…', 'info');
+              void agent.draftCaseFromImage(img).then(result => {
+                if (result.ok) {
+                  showToast('草稿已生成，去「待确认」里审', 'success');
+                  setMemoryPendingOpen(true);
+                } else {
+                  showToast(result.error || '起草失败', 'error');
+                }
+              });
+            }}
             onWithdraw={agent.withdrawTurn}
             messageActionsDisabled={agent.messageActionsDisabled}
             onReedit={agent.reeditProposal}
@@ -676,23 +700,19 @@ export function AgentChatWorkspace({
           />
         ))}
 
-        {(agent.phase === 'streaming' || agent.streamingText || agent.streamingReasoning) && (
+        {(agent.phase === 'streaming' || agent.streamingText) && (
           <div className="flex gap-2.5">
             <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
               <Bot className="h-4 w-4" />
             </div>
             <div className="flex max-w-[80%] flex-col gap-2">
-              {(agent.streamingReasoning || (agent.phase === 'streaming' && !agent.streamingText)) && (
-                <div className="rounded-xl border border-border/60 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                  <div className="mb-1 flex items-center gap-1.5 font-medium">
-                    <Brain className="h-3.5 w-3.5" />
-                    思考中
-                  </div>
-                  <div className="leading-relaxed opacity-90">
-                    {agent.streamingReasoning
-                      ? <div dangerouslySetInnerHTML={{ __html: renderReasoning(agent.streamingReasoning) }} />
-                      : '正在连接模型…'}
-                  </div>
+              {/* 思考过程不展示（模型推理原文只记录、不显示）；还没出正文时给一行状态，免得看着像卡住 */}
+              {agent.phase === 'streaming' && !agent.streamingText && (
+                <div className="rounded-2xl rounded-tl-sm border border-border/60 bg-muted/40 px-3.5 py-2 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    处理中…
+                  </span>
                 </div>
               )}
               {agent.streamingText && (
@@ -722,9 +742,9 @@ export function AgentChatWorkspace({
             hideControls={!intentRecognition}
             failed={Boolean(agent.error)}
             onModelChange={agent.setImageModel}
-            onApprove={(prompt, ids, _model, _params) => {
+            onApprove={(prompt, ids, _model, _params, promptEn) => {
               if (intentRecognition) {
-                void agent.approveProposal(prompt, ids, _model, _params);
+                void agent.approveProposal(prompt, ids, _model, _params, promptEn);
               } else {
                 const layout = sanitizeLayoutForModel(userModel, userOutputSize, userAspectRatio);
                 void agent.approveProposal(prompt, ids, userModel, {
@@ -736,7 +756,7 @@ export function AgentChatWorkspace({
                   gptImageStyle: userAdvancedParams.style,
                   gptImageBackground: userAdvancedParams.background,
                   parallelCount: userParallelCount,
-                });
+                }, promptEn);
               }
             }}
             onCancel={agent.cancelProposal}
@@ -751,7 +771,6 @@ export function AgentChatWorkspace({
             <div className="flex max-w-[80%] flex-col gap-2">
               <AgentGenerationProgress
                 analysis={agent.generationDraft.analysis}
-                reasoning={agent.generationDraft.reasoning}
                 prompt={agent.generationDraft.prompt}
                 parallelCount={agent.generationDraft.parallelCount}
                 phase={agent.phase}
@@ -942,6 +961,45 @@ export function AgentChatWorkspace({
           >
             <Save className="h-4 w-4" />
             <span className="text-xs">存提示词</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="shrink-0 gap-1.5 text-muted-foreground"
+            onClick={() => setMemoryNoteOpen(true)}
+            disabled={busy || interactionDisabled}
+            title="把一条规则/案例/建议写进本类目记忆（只影响当前 agent）"
+          >
+            <Brain className="h-4 w-4" />
+            <span className="text-xs">记一条</span>
+          </Button>
+          <Button
+            variant={(agent.pendingDrafts?.length || 0) > 0 ? 'default' : 'ghost'}
+            size="sm"
+            className={cn(
+              'shrink-0 gap-1.5',
+              (agent.pendingDrafts?.length || 0) > 0 ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'text-muted-foreground'
+            )}
+            onClick={() => { setMemoryPendingOpen(true); void agent.refreshPendingDrafts(); }}
+            title="AI 起草的记忆草稿：你确认后才写进记忆"
+          >
+            <ListChecks className="h-4 w-4" />
+            <span className="text-xs">待确认{(agent.pendingDrafts?.length || 0) > 0 ? ` ${agent.pendingDrafts?.length}` : ''}</span>
+          </Button>
+          <Button
+            variant={agent.memoryReview?.due ? 'default' : 'ghost'}
+            size="sm"
+            className={cn(
+              'shrink-0 gap-1.5',
+              agent.memoryReview?.due ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'text-muted-foreground'
+            )}
+            onClick={() => { setMemoryViewerOpen(true); void agent.refreshPendingDrafts(); }}
+            title={agent.memoryReview?.due
+              ? `该复盘了：上次复盘后新增 ${agent.memoryReview.count} 条`
+              : '查看/编辑本类目的记忆'}
+          >
+            <Library className="h-4 w-4" />
+            <span className="text-xs">记忆{agent.memoryReview?.due ? ' · 该复盘' : ''}</span>
           </Button>
 
           {agent.agentSupportsWebSearch && (
@@ -1185,6 +1243,67 @@ export function AgentChatWorkspace({
           )}
         </div>
       </div>
+
+      <AgentMemoryViewerPanel
+        open={memoryViewerOpen}
+        busy={agent.memoryReviewBusy}
+        onClose={() => setMemoryViewerOpen(false)}
+        onRefreshPending={() => { void agent.refreshPendingDrafts(); }}
+        onReview={() => {
+          void agent.runMemoryReview().then(result => {
+            showToast(
+              result.ok ? `已起草 ${result.count} 条规则建议，去「待确认」里审` : (result.error || '复盘失败'),
+              result.ok ? 'success' : 'error',
+            );
+            if (result.ok) setMemoryPendingOpen(true);
+          });
+        }}
+      />
+
+      <AgentMemoryPendingPanel
+        open={memoryPendingOpen}
+        drafts={agent.pendingDrafts}
+        busyId={memoryPendingBusyId}
+        onClose={() => setMemoryPendingOpen(false)}
+        onApprove={(id: string, override: { kind: MemoryNoteKind | 'session'; text: string }) => {
+          setMemoryPendingBusyId(id);
+          void agent.approveDraft(id, override).then(result => {
+            setMemoryPendingBusyId('');
+            showToast(result.ok ? '已写入本类目记忆' : (result.error || '写入失败'), result.ok ? 'success' : 'error');
+          });
+        }}
+        onReject={(id: string) => {
+          setMemoryPendingBusyId(id);
+          void agent.rejectDraft(id).then(result => {
+            setMemoryPendingBusyId('');
+            showToast(result.ok ? '已驳回，以后不再提这条' : (result.error || '驳回失败'), result.ok ? 'success' : 'error');
+          });
+        }}
+        onApproveAll={() => {
+          void agent.approveAllDrafts().then(result => {
+            showToast(result.ok ? `已写入 ${result.approved} 条` : (result.error || '批量写入失败'), result.ok ? 'success' : 'error');
+          });
+        }}
+      />
+
+      <AgentMemoryNoteDialog
+        open={memoryNoteOpen}
+        saving={memoryNoteSaving}
+        onClose={() => setMemoryNoteOpen(false)}
+        onDraft={(kind: MemoryNoteKind) => agent.draftMemoryNoteForReview(kind)}
+        onSubmit={(kind: MemoryNoteKind, text: string) => {
+          setMemoryNoteSaving(true);
+          void agent.rememberMemoryEntry(kind, text).then(result => {
+            setMemoryNoteSaving(false);
+            if (result.ok) {
+              setMemoryNoteOpen(false);
+              showToast(kind === 'proposal' ? '已记为规则建议，待确认' : '已写入本类目记忆', 'success');
+            } else {
+              showToast(result.error || '写入记忆失败', 'error');
+            }
+          });
+        }}
+      />
 
       <MissingApiKeyDialog
         open={missingApiKeyDialogOpen}

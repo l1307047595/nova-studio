@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
-import { MessageSquare, Pencil, Plus, Trash2, X } from 'lucide-react';
+import { Boxes, MessageSquare, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -16,24 +16,35 @@ import { Input } from '@/components/ui/input';
 import { deleteAgentSessionDatabase } from '@/lib/agent-context-store';
 import {
   createAgentSession,
+  defaultSessionIdForAgent,
   deleteAgentSession,
-  listAgentSessions,
+  listAgentSessionsForAgent,
   renameAgentSession,
   type AgentSession,
 } from '@/lib/agent-sessions';
+import { DEFAULT_AGENT_ID, createAgent, fetchAgents, type NovaAgent } from '@/lib/nova-agents';
 import { cn } from '@/lib/utils';
 
 export interface SessionSwitcherProps {
   activeSessionId: string;
   onSessionChange: (sessionId: string) => void | Promise<void>;
+  /** 当前工作类目（不传按默认类目走，便于单测独立渲染） */
+  agentId?: string;
+  onAgentChange?: (agentId: string) => void | Promise<void>;
   mobileOpen?: boolean;
   onMobileOpenChange?: (open: boolean) => void;
 }
 
 type NameDialogState = { mode: 'create' } | { mode: 'rename'; session: AgentSession } | null;
 
-export function SessionSwitcher({ activeSessionId, onSessionChange, mobileOpen, onMobileOpenChange }: SessionSwitcherProps) {
-  const [sessions, setSessions] = useState<AgentSession[]>(() => listAgentSessions());
+export function SessionSwitcher({ activeSessionId, onSessionChange, agentId = DEFAULT_AGENT_ID, onAgentChange, mobileOpen, onMobileOpenChange }: SessionSwitcherProps) {
+  const [sessions, setSessions] = useState<AgentSession[]>(() => listAgentSessionsForAgent(agentId));
+  const [agents, setAgents] = useState<NovaAgent[]>([]);
+  const [agentBusy, setAgentBusy] = useState(false);
+  const [agentDialogOpen, setAgentDialogOpen] = useState(false);
+  const [agentIdDraft, setAgentIdDraft] = useState('');
+  const [agentNameDraft, setAgentNameDraft] = useState('');
+  const [agentError, setAgentError] = useState<string | null>(null);
   const [nameDialog, setNameDialog] = useState<NameDialogState>(null);
   const [deleteTarget, setDeleteTarget] = useState<AgentSession | null>(null);
   const [nameDraft, setNameDraft] = useState('');
@@ -48,6 +59,24 @@ export function SessionSwitcher({ activeSessionId, onSessionChange, mobileOpen, 
   };
 
   const activeSession = sessions.find(s => s.id === activeSessionId);
+  const defaultSessionId = defaultSessionIdForAgent(agentId);
+  const agentOptions: NovaAgent[] = agents.length > 0 ? agents : [{ id: agentId, name: agentId }];
+  const currentAgentName = agentOptions.find(a => a.id === agentId)?.name || agentId;
+
+  // 切类目后重新拉该类的会话列表
+  useEffect(() => {
+    setSessions(listAgentSessionsForAgent(agentId));
+  }, [agentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAgents().then(list => {
+      if (!cancelled && list.length > 0) setAgents(list);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId]);
 
   useEffect(() => {
     if (!isMobileOpen) return;
@@ -58,7 +87,47 @@ export function SessionSwitcher({ activeSessionId, onSessionChange, mobileOpen, 
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [isMobileOpen]);
 
-  const refreshSessions = () => setSessions(listAgentSessions());
+  const refreshSessions = () => setSessions(listAgentSessionsForAgent(agentId));
+
+  /** 切换工作类目（记忆与会话整体切走，由父层重挂载工作区） */
+  const handleAgentSelect = async (nextAgentId: string) => {
+    if (!nextAgentId || nextAgentId === agentId || agentBusy || !onAgentChange) return;
+    setAgentBusy(true);
+    try {
+      await onAgentChange(nextAgentId);
+    } finally {
+      setAgentBusy(false);
+    }
+  };
+
+  const openAgentDialog = () => {
+    setAgentIdDraft('');
+    setAgentNameDraft('');
+    setAgentError(null);
+    setAgentDialogOpen(true);
+  };
+
+  const handleAgentCreate = async (event: FormEvent) => {
+    event.preventDefault();
+    const id = agentIdDraft.trim().toLowerCase();
+    if (!id) return;
+
+    setAgentBusy(true);
+    setAgentError(null);
+    try {
+      const result = await createAgent({ id, name: agentNameDraft.trim() || id });
+      if (!result.ok) {
+        setAgentError(result.error || '新建类目失败');
+        return;
+      }
+      const list = await fetchAgents();
+      if (list.length > 0) setAgents(list);
+      setAgentDialogOpen(false);
+      if (onAgentChange) await onAgentChange(id);
+    } finally {
+      setAgentBusy(false);
+    }
+  };
 
   const handleSessionChange = async (sessionId: string) => {
     if (busy || sessionId === activeSessionId) return;
@@ -89,7 +158,7 @@ export function SessionSwitcher({ activeSessionId, onSessionChange, mobileOpen, 
     setBusy(true);
     try {
       if (nameDialog.mode === 'create') {
-        const session = createAgentSession(name);
+        const session = createAgentSession(name, agentId);
         refreshSessions();
         setNameDialog(null);
         setMobileOpenState(false);
@@ -179,7 +248,7 @@ export function SessionSwitcher({ activeSessionId, onSessionChange, mobileOpen, 
           >
             <Pencil className="size-3.5" />
           </button>
-          {session.id !== 'default' && (
+          {session.id !== defaultSessionId && (
             <button
               type="button"
               aria-label={`删除会话 ${session.name}`}
@@ -214,6 +283,36 @@ export function SessionSwitcher({ activeSessionId, onSessionChange, mobileOpen, 
         <div className="flex items-center justify-between border-b border-border px-3 py-2">
           <span className="text-sm font-medium">会话</span>
           <span className="text-xs text-muted-foreground">{sessions.length}</span>
+        </div>
+        <div className="border-b border-border px-2.5 py-2 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+              <Boxes className="size-3.5" />
+              工作类目
+            </span>
+            <button
+              type="button"
+              onClick={openAgentDialog}
+              disabled={agentBusy}
+              className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+            >
+              ＋ 新建
+            </button>
+          </div>
+          <select
+            aria-label="选择工作类目"
+            value={agentId}
+            disabled={agentBusy}
+            onChange={event => void handleAgentSelect(event.target.value)}
+            className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm font-medium text-foreground outline-none transition-colors hover:border-primary/40 focus:border-primary/60 disabled:opacity-50"
+          >
+            {agentOptions.map(agent => (
+              <option key={agent.id} value={agent.id}>{agent.name}</option>
+            ))}
+          </select>
+          <p className="text-[11px] leading-tight text-muted-foreground/70">
+            「{currentAgentName}」的记忆与会话独立，不与其他类目相通
+          </p>
         </div>
         <div className="border-b border-border p-2">
           <Button
@@ -259,6 +358,34 @@ export function SessionSwitcher({ activeSessionId, onSessionChange, mobileOpen, 
               </button>
             </div>
 
+            <div className="border-b border-border/60 px-0.5 py-2.5 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                  <Boxes className="size-3.5" />
+                  工作类目
+                </span>
+                <button
+                  type="button"
+                  onClick={openAgentDialog}
+                  disabled={agentBusy}
+                  className="rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+                >
+                  ＋ 新建
+                </button>
+              </div>
+              <select
+                aria-label="选择工作类目"
+                value={agentId}
+                disabled={agentBusy}
+                onChange={event => void handleAgentSelect(event.target.value)}
+                className="w-full rounded-lg border border-border bg-background px-2 py-1.5 text-sm font-medium text-foreground outline-none"
+              >
+                {agentOptions.map(agent => (
+                  <option key={agent.id} value={agent.id}>{agent.name}</option>
+                ))}
+              </select>
+            </div>
+
             <div className="py-2.5 border-b border-border/60">
               <Button
                 type="button"
@@ -280,6 +407,58 @@ export function SessionSwitcher({ activeSessionId, onSessionChange, mobileOpen, 
         </div>,
         document.body
       )}
+
+      <Dialog
+        open={agentDialogOpen}
+        onOpenChange={open => {
+          if (!open && !agentBusy) setAgentDialogOpen(false);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <form onSubmit={event => void handleAgentCreate(event)}>
+            <DialogHeader>
+              <DialogTitle>新建类目</DialogTitle>
+              <DialogDescription>
+                每个类目有独立的记忆（违禁词 / 写法 / 色板）和独立会话，互不相通。
+              </DialogDescription>
+            </DialogHeader>
+            <label className="mt-4 block space-y-1.5 text-sm">
+              <span>类目标识（小写字母、数字、_ 或 -，用作目录名）</span>
+              <Input
+                autoFocus
+                aria-label="类目标识"
+                value={agentIdDraft}
+                onChange={event => setAgentIdDraft(event.target.value)}
+                placeholder="beauty"
+                maxLength={32}
+              />
+            </label>
+            <label className="mt-3 block space-y-1.5 text-sm">
+              <span>显示名称</span>
+              <Input
+                aria-label="类目名称"
+                value={agentNameDraft}
+                onChange={event => setAgentNameDraft(event.target.value)}
+                placeholder="美妆"
+                maxLength={40}
+              />
+            </label>
+            {agentError && (
+              <p role="alert" className="mt-2 text-sm text-destructive">
+                {agentError}
+              </p>
+            )}
+            <DialogFooter className="mt-4">
+              <Button type="button" variant="outline" onClick={() => setAgentDialogOpen(false)} disabled={agentBusy}>
+                取消
+              </Button>
+              <Button type="submit" disabled={!agentIdDraft.trim() || agentBusy}>
+                创建并切换
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={nameDialog !== null}

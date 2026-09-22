@@ -32,7 +32,7 @@ describe('listAgentSessions', () => {
   it('创建会话时使用 UUID 并持久化到默认会话之后', () => {
     const created = createAgentSession('商品图会话');
 
-    expect(created).toEqual({ id: 'generated-session-id', name: '商品图会话' });
+    expect(created).toEqual({ id: 'generated-session-id', name: '商品图会话', agentId: 'squeeze' });
     expect(listAgentSessions()).toEqual([DEFAULT_SESSION, created]);
     expect(JSON.parse(localStorage.getItem('nova-agent-sessions') || 'null')).toEqual([
       DEFAULT_SESSION,
@@ -44,11 +44,12 @@ describe('listAgentSessions', () => {
     expect(createAgentSession('  商品图会话  ')).toEqual({
       id: 'generated-session-id',
       name: '商品图会话',
+      agentId: 'squeeze',
     });
     expect(() => createAgentSession('   ')).toThrow('会话名称不能为空');
     expect(listAgentSessions()).toEqual([
       DEFAULT_SESSION,
-      { id: 'generated-session-id', name: '商品图会话' },
+      { id: 'generated-session-id', name: '商品图会话', agentId: 'squeeze' },
     ]);
   });
 
@@ -58,7 +59,7 @@ describe('listAgentSessions', () => {
     expect(renameAgentSession('generated-session-id', '新名称')).toBe(true);
     expect(listAgentSessions()).toEqual([
       DEFAULT_SESSION,
-      { id: 'generated-session-id', name: '新名称' },
+      { id: 'generated-session-id', name: '新名称', agentId: 'squeeze' },
     ]);
     expect(renameAgentSession('missing', '不存在')).toBe(false);
   });
@@ -70,7 +71,7 @@ describe('listAgentSessions', () => {
     expect(renameAgentSession('generated-session-id', '   ')).toBe(false);
     expect(listAgentSessions()).toEqual([
       DEFAULT_SESSION,
-      { id: 'generated-session-id', name: '新名称' },
+      { id: 'generated-session-id', name: '新名称', agentId: 'squeeze' },
     ]);
   });
 

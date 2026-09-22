@@ -4,6 +4,7 @@
 import {
   AGENT_TEXT_MODEL_FALLBACK,
   AGENT_SYSTEM_INSTRUCTIONS,
+  AGENT_CATEGORY_SLOT,
   AGENT_CDP_SYSTEM_SUFFIX,
   AGENT_IMAGE_DESCRIBE_PROMPT,
   PROPOSE_IMAGE_ACTION_TOOL,
@@ -13,6 +14,7 @@ import {
   type AgentProposal,
   type AgentActionType,
 } from '@/lib/agent-chat-config';
+import { getCachedAgent, getCurrentAgentId } from '@/lib/nova-agents';
 import { AGENT_CDP_TOOLS, isAgentCdpTool, normalizeCdpToolName } from '@/lib/agent-cdp-tools';
 import {
   normalizeGptImageBackground,
@@ -26,6 +28,7 @@ import {
 } from '@/lib/nova-proxy-text';
 import type { TextProviderProtocol } from '@/lib/nova-text-protocol';
 import { readSseStream } from '@/lib/sse-stream-parser';
+import { formatMemoryBlock } from '@/lib/nova-memory';
 
 const AGENT_GPT_REQUEST_MAX_ATTEMPTS = 3;
 const AGENT_CHAT_ATTEMPT_TIMEOUT_MS = 45_000;
@@ -77,8 +80,36 @@ export interface StreamAgentHandle {
   promise: Promise<void>;
 }
 
+/**
+ * 「本类目」段：把当前工作类目的名字与它的 instructions.md 插进系统提示词。
+ * 类目的身份定义 / 色板 / 违禁词 / 写法在随后注入的 identity.md 里（记忆块），
+ * 这里只声明「现在服务哪个类目」+ 类目自己的工作台补充指令，避免再出现写死某个类目的问题。
+ *
+ * ⚠️ 这里**只读缓存、绝不发请求**：拼提示词在每次发消息的同步路径上，
+ *    一旦在这里 fetch，会把调用方（含测试里 mock 的 fetch）的响应队列搅乱。
+ *    类目清单由 UI 层（SessionSwitcher 挂载时）fetchAgents 刷新；改了 instructions.md 后重新加载页面生效。
+ */
+function buildCategoryBlock(): string {
+  const agentId = getCurrentAgentId();
+  const agent = getCachedAgent(agentId);
+  const name = (agent && agent.name) || agentId;
+  const extra = String((agent && agent.instructions) || '').trim();
+
+  const lines = [
+    `════════ 本类目：${name}（agent id: ${agentId}）════════`,
+    '本类目的身份定义、色板、图型、禁用词与写法要求，以随后注入的《本类目记忆 · identity.md》为**唯一权威**；'
+      + '它与上面的通用契约冲突时，一律以它为准。',
+  ];
+  if (extra) {
+    lines.push(`【本类目工作台指令 · instructions.md】\n${extra}`);
+  } else {
+    lines.push('（本类目没有额外的 instructions.md，按通用契约 + identity.md 执行。）');
+  }
+  return lines.join('\n');
+}
+
 function buildInstructions(catalog: AgentCatalogEntry[], modelCatalog: AgentModelCatalogEntry[], cdpEnabled = false): string {
-  let instructions = AGENT_SYSTEM_INSTRUCTIONS;
+  let instructions = AGENT_SYSTEM_INSTRUCTIONS.replace(AGENT_CATEGORY_SLOT, buildCategoryBlock());
 
   if (modelCatalog.length > 0) {
     const modelLines = modelCatalog
@@ -103,6 +134,10 @@ function buildInstructions(catalog: AgentCatalogEntry[], modelCatalog: AgentMode
   if (cdpEnabled) {
     instructions += AGENT_CDP_SYSTEM_SUFFIX;
   }
+
+  // 本类目记忆（identity 全量 + 会话状态 + 命中本轮关键词的纠错/案例）
+  // 只读内存里的当前记忆：读取发生在会话开始 / 新图上传，会话中途不再读，避免上下文漂移。
+  instructions += formatMemoryBlock();
 
   return instructions;
 }
@@ -247,6 +282,12 @@ function parseProposalArguments(raw: string): AgentProposal | null {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const action = normalizeAction(parsed.action);
     const prompt = typeof parsed.prompt === 'string' ? parsed.prompt : '';
+    const promptEnValue = typeof parsed.prompt_en === 'string'
+      ? parsed.prompt_en
+      : typeof parsed.promptEn === 'string'
+        ? parsed.promptEn
+        : '';
+    const promptEn = promptEnValue.trim() ? promptEnValue.trim() : undefined;
     const reason = typeof parsed.reason === 'string' ? parsed.reason : '';
     const ids = Array.isArray(parsed.referenced_image_ids)
       ? parsed.referenced_image_ids.filter((id): id is string => typeof id === 'string')
@@ -290,6 +331,7 @@ function parseProposalArguments(raw: string): AgentProposal | null {
     return {
       action,
       prompt,
+      promptEn,
       reason,
       referencedImageIds: ids,
       productKey,
@@ -480,10 +522,24 @@ async function runAgentStream(
   // 跨轮累积的提案：模型常在同一轮里「边给商品 A 提案、边调用浏览器抓商品 B」，
   // 若只在收尾轮解析提案，早轮提案会被工具循环吃掉。
   const pendingProposals: AgentProposal[] = [];
+  // 铁律「生图必须以用户上传的参考图中的商品为基础」：空参考图的提案一律拦下，
+  // 并把原因回显到对话里（用户看得见，模型也会从历史里看到）。
+  const rejectedProposalNotes: string[] = [];
+  /** 铁律闸门：空参考图的提案一律拦下并记下原因；返回 null 表示不放行 */
+  const gateProposal = (item: AgentProposal | null): AgentProposal | null => {
+    if (!item) return null;
+    if (item.referencedImageIds.length === 0) {
+      rejectedProposalNotes.push(
+        '⚠️ 已拦下 1 条没有引用任何参考图的生成提案：生图必须以你上传的参考图中的商品为基础（零、铁律第 2 条）。请先上传该商品的参考图，或让我先从商品链接抓回商品图，再出提案。',
+      );
+      return null;
+    }
+    return item;
+  };
   const pushProposals = (calls: CapturedToolCall[]) => {
     for (const item of calls
       .filter(call => call.name === PROPOSE_IMAGE_ACTION_TOOL.name)
-      .map(call => parseProposalArguments(call.arguments))
+      .map(call => gateProposal(parseProposalArguments(call.arguments)))
       .filter((item): item is AgentProposal => item !== null)) {
       const duplicated = pendingProposals.some(other => (
         other.productKey === item.productKey
@@ -772,16 +828,26 @@ async function runAgentStream(
       continue;
     }
 
+    const fallbackArgs = roundResult.toolCalls.length > 0
+      ? roundResult.toolCalls[roundResult.toolCalls.length - 1].arguments
+      : '';
+    // 兜底路径也要过铁律闸门，否则空参考图的提案会从这里绕过去
+    const fallbackProposal = gateProposal(parseProposalArguments(fallbackArgs));
+
+    if (rejectedProposalNotes.length > 0) {
+      const note = `\n\n${rejectedProposalNotes.join('\n')}`;
+      accumulated += note;
+      callbacks.onDelta(note);
+      rejectedProposalNotes.length = 0;
+    }
+
     if (pendingProposals.length > 0) {
       ensureSeparateImageEdits();
       ensureRequestedRatios();
       callbacks.onDone(accumulated, pendingProposals[0], pendingProposals);
       return;
     }
-    const fallbackArgs = roundResult.toolCalls.length > 0
-      ? roundResult.toolCalls[roundResult.toolCalls.length - 1].arguments
-      : '';
-    callbacks.onDone(accumulated, parseProposalArguments(fallbackArgs));
+    callbacks.onDone(accumulated, fallbackProposal);
     return;
   }
 }

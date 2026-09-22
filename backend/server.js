@@ -120,7 +120,25 @@ function hashPromptGalleryPassword(password) {
 }
 
 const PORT = Number(process.env.PORT || 3000);
-const HOSTNAME = process.env.HOSTNAME || '0.0.0.0';
+
+// ===== 绑定地址：默认只绑回环，永远不默认暴露到局域网 =====
+// 背景：Windows 上 HOSTNAME 会被预设成计算机名，而旧的默认值 0.0.0.0 意味着「监听全部网卡」。
+// 一旦有人直接 `node server.js` 或打包后漏设环境变量，整个局域网就能访问（接口无鉴权）。
+// 规则：NOVA_HOST（优先，避开 Windows 的 HOSTNAME 冲突）→ HOSTNAME → 默认 127.0.0.1；
+//       非回环地址必须显式 NOVA_ALLOW_LAN=true 才允许，否则强制回退回环。
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+const REQUESTED_HOST = String(process.env.NOVA_HOST || process.env.HOSTNAME || '127.0.0.1').trim() || '127.0.0.1';
+const ALLOW_LAN = String(process.env.NOVA_ALLOW_LAN || '').toLowerCase() === 'true';
+const IS_LOOPBACK_REQUEST = LOOPBACK_HOSTS.has(REQUESTED_HOST.toLowerCase());
+const HOSTNAME = IS_LOOPBACK_REQUEST || ALLOW_LAN ? REQUESTED_HOST : '127.0.0.1';
+
+/** Host 头是否指向本机回环（支持 127.0.0.1:3111 / localhost:3111 / [::1]:3111） */
+function isLoopbackHostHeader(hostHeader) {
+  const raw = String(hostHeader || '').trim().toLowerCase();
+  if (!raw) return false;
+  const host = raw.startsWith('[') ? raw.slice(0, raw.indexOf(']') + 1) : raw.split(':')[0];
+  return LOOPBACK_HOSTS.has(host);
+}
 const DB_PATH = process.env.NOVA_TASK_DB || path.join(__dirname, 'nova-tasks.sqlite');
 const TASK_TTL_MS = (Number(process.env.NOVA_TASK_TTL_HOURS) || 12) * 60 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
@@ -146,11 +164,50 @@ const CUSTOM_IMAGE_SIZE_LIMITS = {
   maxPixels: 8294400,
 };
 const IS_DEV = process.env.NODE_ENV !== 'production';
+
+// === 本地补丁：opencode zen Go（Console Go）会话头 ===
+// 上游要求每个请求带 x-opencode-session，否则返回 400 MissingSessionID：
+//   {"error":{"type":"MissingSessionID","message":"...missing x-opencode-session..."}}
+// 这里只按 baseUrl 域名判定，仅对 opencode.ai 生效，不影响其它上游。
+// 详情与回滚方式见仓库根目录《部署说明-本地.md》。可用环境变量 NOVA_OPENCODE_SESSION 覆盖。
+const NOVA_OPENCODE_SESSION = String(process.env.NOVA_OPENCODE_SESSION || '').trim() || randomUUID();
+function isOpencodeZenBaseUrl(baseUrl) {
+  try {
+    return new URL(String(baseUrl || '')).hostname.toLowerCase().endsWith('opencode.ai');
+  } catch {
+    return false;
+  }
+}
 const STATIC_DIR = path.join(__dirname, '..', 'frontend', 'out');
 const IMAGE_DIR = process.env.NOVA_IMAGE_DIR || path.join(__dirname, 'nova-images');
 // CDP 功能为启动级开关：默认关闭，显式置 true 时才提供 /api/nova/cdp/*。
 const CDP_ENABLED = String(process.env.NOVA_CDP_ENABLED ?? 'false').toLowerCase() === 'true';
 const CDP_DIR = process.env.NOVA_CDP_DIR || path.join(path.dirname(IMAGE_DIR), 'cdp-products');
+
+// ==== Agent 记忆（本地文件，按 agent 目录隔离）====
+// 每个 agent 一个目录：data/memory/<agent>/{identity,feedback,library,state}.md
+// 只读注入给该 agent 的会话；不落浏览器、不进 git、无公共层。
+const MEMORY_ROOT = process.env.NOVA_MEMORY_DIR || path.join(__dirname, 'data', 'memory');
+const MEMORY_AGENT_RE = /^[a-z0-9_-]{1,32}$/;
+// 会话 id 可能是 UUID（36 字符、含连字符），比 agent 名宽松；仍禁点号与斜杠，杜绝路径穿越
+const MEMORY_SESSION_RE = /^[a-zA-Z0-9_-]{1,64}$/;
+const MEMORY_FILE_NAMES = { identity: 'identity.md', feedback: 'feedback.md', library: 'library.md', proposals: 'proposals.md' };
+const MEMORY_LIMITS = {
+  identity: Number(process.env.NOVA_MEMORY_IDENTITY_LIMIT) || 32768,
+  hitCount: Number(process.env.NOVA_MEMORY_HIT_COUNT) || 8,
+  // 单条写入限长：防止某一条写成小作文把每轮上下文吃掉
+  entryChars: Number(process.env.NOVA_MEMORY_ENTRY_CHARS) || 800,
+  // 命中注入的总字符上限：超了按相关度取舍，并在注入里注明还有多少条没注入
+  hitTotalChars: Number(process.env.NOVA_MEMORY_HIT_TOTAL_CHARS) || 6000,
+  // 复盘阈值：累计新增多少条纠错/案例后提醒复盘
+  reviewThreshold: Number(process.env.NOVA_MEMORY_REVIEW_THRESHOLD) || 15,
+  // 规则效力：某条规则被纠错引用（复发）多少次算「待修订」
+  ruleReviseRefs: Number(process.env.NOVA_MEMORY_RULE_REVISE_REFS) || 3,
+  // 规则效力：采纳后多少天一次都没被引用，算「待复核」
+  ruleStaleDays: Number(process.env.NOVA_MEMORY_RULE_STALE_DAYS) || 14,
+  // 命中排序：标签完全命中一条加多少分（相对正文 bigram 命中的 1 分）
+  tagWeight: Number(process.env.NOVA_MEMORY_TAG_WEIGHT) || 3,
+};
 const taskRefImages = new Map();
 
 // CDP 图片自动清理：保留最近 7 天或最多 100 张，防止无限累积
@@ -2701,6 +2758,906 @@ function ackTask(res, taskId) {
   sendJson(res, 200, { ok: true });
 }
 
+// ===== Agent 记忆（本地文件，按 agent 隔离，无公共层） =====
+// 目录：data/memory/<agent>/{identity,feedback,library,proposals}.md
+//       data/memory/<agent>/sessions/<sessionId>.md   ← 会话级「进行中的单」，多开对话互不覆盖
+// 读写时机由前端控制：读取只在会话开始 / 新图上传；写入只在「无进行中任务 + 3 分钟无对话」的空闲心跳。
+function memoryAgentDir(agentId) {
+  if (!MEMORY_AGENT_RE.test(String(agentId || ''))) return null;
+  const rootReal = fs.existsSync(MEMORY_ROOT) ? fs.realpathSync(MEMORY_ROOT) : path.resolve(MEMORY_ROOT);
+  let dirReal;
+  try { dirReal = fs.realpathSync(path.join(MEMORY_ROOT, agentId)); } catch { return null; }
+  if (dirReal !== rootReal && !dirReal.startsWith(rootReal + path.sep)) return null;
+  return dirReal;
+}
+
+function readMemoryFile(agentId, kind) {
+  const dir = memoryAgentDir(agentId);
+  if (!dir) return null;
+  const fileName = MEMORY_FILE_NAMES[kind];
+  if (!fileName) return null;
+  try {
+    const file = path.join(dir, fileName);
+    if (!fs.existsSync(file)) return null;
+    const real = fs.realpathSync(file);
+    if (!real.startsWith(dir + path.sep)) return null;   // 符号链接越界
+    return fs.readFileSync(real, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+function readSessionState(agentId, sessionId) {
+  const dir = memoryAgentDir(agentId);
+  if (!dir) return null;
+  const id = String(sessionId || '').trim();
+  if (!MEMORY_SESSION_RE.test(id)) return null;            // 会话 id 放宽到 UUID，仍杜绝路径穿越
+  try {
+    const file = path.join(dir, 'sessions', `${id}.md`);
+    if (!fs.existsSync(file)) return null;
+    const real = fs.realpathSync(file);
+    if (!real.startsWith(path.join(dir, 'sessions') + path.sep)) return null;
+    return fs.readFileSync(real, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+// 命中就「整块」返回（不按字符截断，只按条数 + 总量上限），保证被命中的纠错/案例是完整的
+// 排序不再是纯文本匹配：标签命中权重最高（同类商品/同类图型优先），其次正文 bigram，再算标题权重与新近度
+function matchMemoryBlocks(text, query, limitCount, totalChars) {
+  if (!text) return { blocks: [], dropped: 0, scored: [] };
+  const tokens = memoryTokens(query);
+  const queryTags = extractMemoryTags(query);
+  const blocks = memoryBlocks(text);
+  if (tokens.length === 0 && queryTags.length === 0) return { blocks: [], dropped: 0, scored: [] };
+  const scored = blocks
+    .map((block, index) => ({
+      block,
+      score: scoreMemoryEntry(block, tokens, query, queryTags, index, blocks.length),
+    }))
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score);
+
+  // 膨胀保护：条数上限 + 总字符上限（按相关度从高到低收，超了丢低分的那部分并报数）
+  const kept = [];
+  let used = 0;
+  for (const item of scored) {
+    if (kept.length >= limitCount) break;
+    if (used + item.block.length > totalChars) break;
+    kept.push(item.block);
+    used += item.block.length;
+  }
+  return { blocks: kept, dropped: scored.length - kept.length, scored };
+}
+
+/** 抽取 #标签（中英文/数字，支持 #a-b_c）——标签维度固定，值自由增长 */
+function extractMemoryTags(text) {
+  const found = String(text || '').match(/#[^\s#，。；、,;:：()（）\[\]【】"'`]{1,24}/g) || [];
+  return Array.from(new Set(found.map(tag => tag.slice(1).trim()).filter(Boolean))).slice(0, 12);
+}
+
+/**
+ * 单条记忆的命中分：
+ *   标签命中 × tagWeight —— 显式 `#标签` 命中，或标签值出现在查询文本里（「捏捏乐主图」也算），
+ *                          这是「同类商品优先」的关键
+ *   正文 bigram 命中 × 1
+ *   标题（前 40 字）命中额外 +0.5
+ *   新近度（追加式写入，越靠后越新）最多 +0.5
+ */
+function scoreMemoryEntry(entry, tokens, queryText, queryTags, index, total) {
+  const low = String(entry || '').toLowerCase();
+  const text = String(queryText || '').toLowerCase();
+  let score = 0;
+  for (const token of tokens) if (low.includes(token)) score += 1;
+  const entryTags = extractMemoryTags(entry);
+  for (const tag of entryTags) {
+    const hit = queryTags.includes(tag) || (tag.length >= 2 && text.includes(tag.toLowerCase()));
+    if (hit) score += MEMORY_LIMITS.tagWeight;
+  }
+  if (tokens.length > 0) {
+    const head = low.slice(0, 40);
+    for (const token of tokens) if (head.includes(token)) score += 0.5;
+  }
+  if (typeof index === 'number' && total > 1) score += (index / (total - 1)) * 0.5;
+  return score;
+}
+
+function memoryTokens(text) {
+  const s = String(text || '');
+  const ascii = (s.match(/[a-zA-Z0-9][a-zA-Z0-9_-]+/g) || []).map(t => t.toLowerCase());
+  const grams = [];
+  for (const run of (s.match(/[\u4e00-\u9fa5]{2,}/g) || [])) {
+    if (run.length <= 8) grams.push(run);          // 整词也留一份
+    for (let i = 0; i + 2 <= run.length; i += 1) grams.push(run.slice(i, i + 2));  // 并切 bigram，避免长词只按整词匹配
+  }
+  return Array.from(new Set([...ascii, ...grams])).filter(t => t.length >= 2).slice(0, 80);
+}
+
+function memoryBlocks(text) {
+  // 先剔掉文件表头/说明行（# 标题、> 引用、占位符），否则它们会被当成条目注入提示词
+  const body = String(text || '')
+    .split('\n')
+    .filter(line => !/^\s*[#>]/.test(line))
+    .filter(line => !/^\s*（暂无[^）]*）\s*$/.test(line))
+    .join('\n');
+  return body
+    .split(/\n{2,}/)
+    .map(block => block.trim())
+    .filter(block => block.length >= 8);
+}
+
+function memoryVersion(agentId) {
+  const dir = memoryAgentDir(agentId);
+  if (!dir) return 'missing';
+  let max = 0;
+  for (const name of Object.values(MEMORY_FILE_NAMES)) {
+    try {
+      const st = fs.statSync(path.join(dir, name));
+      if (st.mtimeMs > max) max = st.mtimeMs;
+    } catch { /* 不存在即跳过 */ }
+  }
+  return max ? String(Math.round(max)) : 'empty';
+}
+
+// identity 全量注入（超上限才截断，并明确告知）；feedback/library 命中整块；state 按会话
+function buildAgentMemoryPayload(agentId, query, sessionId) {
+  const identityRaw = readMemoryFile(agentId, 'identity') || '';
+  const feedbackRaw = readMemoryFile(agentId, 'feedback') || '';
+  const libraryRaw = readMemoryFile(agentId, 'library') || '';
+  const proposalsRaw = readMemoryFile(agentId, 'proposals') || '';
+  const sessionRaw = readSessionState(agentId, sessionId) || '';
+
+  const identity = identityRaw.length > MEMORY_LIMITS.identity
+    ? { text: identityRaw.slice(0, MEMORY_LIMITS.identity), truncated: true }
+    : { text: identityRaw, truncated: false };
+
+  const feedbackMatch = matchMemoryBlocks(feedbackRaw, query, MEMORY_LIMITS.hitCount, MEMORY_LIMITS.hitTotalChars);
+  const libraryMatch = matchMemoryBlocks(libraryRaw, query, MEMORY_LIMITS.hitCount, MEMORY_LIMITS.hitTotalChars);
+
+  return {
+    agent: agentId,
+    version: memoryVersion(agentId),
+    exists: Boolean(identityRaw || feedbackRaw || libraryRaw),
+    identity: identity.text,
+    identityTruncated: identity.truncated,
+    feedbackHits: feedbackMatch.blocks,
+    libraryHits: libraryMatch.blocks,
+    feedbackDropped: feedbackMatch.dropped,
+    libraryDropped: libraryMatch.dropped,
+    sessionState: sessionRaw,
+    proposals: proposalsRaw,
+    queryTokenCount: memoryTokens(query).length,
+  };
+}
+
+// 追加写入（只追加，永不覆盖整文件）；单进程内用串行队列防并发交叉写
+const memoryWriteChains = new Map();
+function appendMemoryFile(agentId, kind, text) {
+  const dir = memoryAgentDir(agentId);
+  if (!dir) throw new Error('agent 不存在或 id 非法');
+  const fileName = MEMORY_FILE_NAMES[kind];
+  if (!fileName || kind === 'identity') throw new Error('该文件不允许 Agent 写入（identity 只读，请写 proposals）');
+  const body = String(text || '').trim();
+  if (!body) throw new Error('内容为空');
+  if (body.length > MEMORY_LIMITS.entryChars) {
+    throw new Error(`单条太长（${body.length} 字符，上限 ${MEMORY_LIMITS.entryChars}）——请拆成多条更具体的记忆`);
+  }
+  const target = path.join(dir, fileName);
+  const prev = memoryWriteChains.get(target) || Promise.resolve();
+  const next = prev.then(() => {
+    const stamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    fs.appendFileSync(target, `\n- [${stamp}] ${body}\n`, 'utf8');
+  });
+  memoryWriteChains.set(target, next.catch(() => {}));
+  return next.then(() => ({ ok: true, file: fileName }));
+}
+
+function writeProposal(agentId, text) {
+  return appendMemoryFile(agentId, 'proposals', text);
+}
+
+// ===== 待确认队列 =====
+// 心跳只往这里写「草稿」，用户确认后才落到 feedback/library/proposals/sessions 真文件。
+// 驳回的条目会被记下，心跳以后不再重复提同样的内容。
+const MEMORY_PENDING_FILE = 'pending.json';
+const MEMORY_PENDING_MAX = 200;
+const MEMORY_REJECTED_MAX = 30;
+const MEMORY_NOTE_KINDS = new Set(['feedback', 'library', 'proposal', 'session']);
+
+// ===== 多 Agent（类目）注册表：data/memory/<agent>/ =====
+// 每个类目一个目录，各自的记忆与会话完全隔离，无公共层。
+// 可选 data/memory/_template/ ：新建类目时按它初始化（模板可改，不写死）。
+
+function memoryAgentsRoot() {
+  return MEMORY_ROOT;
+}
+
+function agentMetaPath(dir) {
+  return path.join(dir, 'agent.json');
+}
+
+function readAgentMeta(dir, fallbackId) {
+  try {
+    const file = agentMetaPath(dir);
+    if (!fs.existsSync(file)) return { id: fallbackId, name: fallbackId };
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return {
+      id: String((parsed && parsed.id) || fallbackId),
+      name: String((parsed && parsed.name) || fallbackId),
+      description: String((parsed && parsed.description) || ''),
+    };
+  } catch {
+    return { id: fallbackId, name: fallbackId };
+  }
+}
+
+// 类目专属指令（工作台层面的补充规则；类目的身份定义与词库仍然在 identity.md 里）。
+// 放在 agent 自己的目录里而不是写死在代码里：换类目 = 换文件，不用改前端、不用重新打包。
+const MEMORY_INSTRUCTIONS_LIMIT = 16384;
+function agentInstructionsPath(dir) {
+  return path.join(dir, 'instructions.md');
+}
+function readAgentInstructions(agentId) {
+  if (!MEMORY_AGENT_RE.test(agentId)) return '';
+  try {
+    const file = agentInstructionsPath(path.join(memoryAgentsRoot(), agentId));
+    if (!fs.existsSync(file)) return '';
+    const text = fs.readFileSync(file, 'utf8').trim();
+    return text.length > MEMORY_INSTRUCTIONS_LIMIT
+      ? `${text.slice(0, MEMORY_INSTRUCTIONS_LIMIT)}\n（注意：本类目指令已按上限截断）`
+      : text;
+  } catch {
+    return '';
+  }
+}
+
+// ── 软件更新：版本比较与浏览器模式兜底 ────────────────────────────────────
+const NOVA_RELEASE_REPO = process.env.NOVA_RELEASE_REPO || 'l1307047595/nova-studio-release';
+
+/** 本机版本号：取应用根 package.json（打包后它在 asar 根目录） */
+function localAppVersion() {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
+    return String(pkg.version || '');
+  } catch {
+    return '';
+  }
+}
+
+/** 语义化版本比较：a 比 b 新返回正数 */
+function compareVersions(a, b) {
+  const norm = v => String(v || '').replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
+  const pa = norm(a);
+  const pb = norm(b);
+  for (let i = 0; i < 3; i += 1) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff) return diff;
+  }
+  return 0;
+}
+
+/** 浏览器模式下的检查：问 GitHub 最新正式版，只提示不安装 */
+async function checkUpdateViaGithub() {
+  const current = localAppVersion();
+  const base = {
+    mode: 'browser',
+    supported: false,
+    currentVersion: current,
+    releaseUrl: `https://github.com/${NOVA_RELEASE_REPO}/releases`,
+    checkedAt: new Date().toISOString(),
+  };
+  try {
+    const response = await fetch(
+      `https://api.github.com/repos/${NOVA_RELEASE_REPO}/releases?per_page=10`,
+      { headers: { 'User-Agent': 'nova-studio-update-check', Accept: 'application/vnd.github+json' } },
+    );
+    if (!response.ok) throw new Error(`GitHub HTTP ${response.status}`);
+    const list = await response.json();
+    const releases = (Array.isArray(list) ? list : []).filter(item => item && !item.draft && !item.prerelease);
+    if (!releases.length) {
+      return { ...base, status: 'not-available', message: '仓库里还没有正式版本' };
+    }
+    const latest = releases[0];
+    const latestVersion = String(latest.tag_name || '').replace(/^v/i, '');
+    const releaseUrl = String(latest.html_url || base.releaseUrl);
+    if (latestVersion && compareVersions(latestVersion, current) > 0) {
+      return {
+        ...base,
+        status: 'available',
+        latestVersion,
+        releaseUrl,
+        message: `发现新版本 ${latestVersion}（浏览器访问模式：请手动下载安装）`,
+      };
+    }
+    return { ...base, status: 'not-available', latestVersion, releaseUrl, message: '已是最新版本' };
+  } catch (error) {
+    return { ...base, status: 'error', message: `检查失败：${normalizeError(error)}` };
+  }
+}
+
+function listAgents() {
+  const root = memoryAgentsRoot();
+  let names = [];
+  try {
+    names = fs.readdirSync(root, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && !entry.name.startsWith('_') && !entry.name.startsWith('.'))
+      .map(entry => entry.name);
+  } catch {
+    return [];
+  }
+  return names
+    .filter(name => MEMORY_AGENT_RE.test(name))
+    .map(name => {
+      const dir = path.join(root, name);
+      const meta = readAgentMeta(dir, name);
+      const counts = { feedback: 0, library: 0, proposals: 0 };
+      for (const kind of Object.keys(counts)) {
+        counts[kind] = splitMemoryFile(readMemoryFile(name, kind) || '').entries.length;
+      }
+      let updatedAt = '';
+      try {
+        updatedAt = new Date(fs.statSync(path.join(dir, 'identity.md')).mtimeMs).toISOString();
+      } catch { /* 没有 identity 也算合法类目 */ }
+      return {
+        ...meta,
+        id: name,
+        hasIdentity: Boolean(readMemoryFile(name, 'identity')),
+        instructions: readAgentInstructions(name),
+        counts,
+        updatedAt,
+      };
+    })
+    .sort((a, b) => (a.name > b.name ? 1 : -1));
+}
+
+const AGENT_DEFAULT_IDENTITY = `# 新类目 · 规则（identity）
+
+> 这里是**每轮都会全量注入**的类目规则：只放稳定的东西（违禁词 / 写法 / 基础色板）。
+> AI 只读本文件；要改规则请在「记忆」面板里编辑，或走「规则建议」确认后采纳。
+
+## 违禁词 / 平台红线
+
+（待填）
+
+## 写法规则
+
+（待填）
+
+## 基础色板
+
+（待填；新试出来的色板先记在「案例 / 色板」，验证稳定后再升级到这里）
+`;
+
+const AGENT_DEFAULT_FEEDBACK = `# 新类目 · 纠错记忆（F/P 规则库）
+
+> 写入规则：只追加。每条 = 规则 + 为什么。
+> 来源：AI 起草 → 你在「待确认」里审过才写入；或你点「记一条」直接写。
+
+（暂无条目）
+`;
+
+const AGENT_DEFAULT_LIBRARY = `# 新类目 · 案例与色板（通过版沉淀）
+
+> 写入规则：只追加。每条 = 通过的方案要点 / 可复用基调句 / 新试出来的色板。
+
+（暂无条目）
+`;
+
+const AGENT_DEFAULT_PROPOSALS = `# 新类目 · 规则改动建议（AI 提议 → 你确认后才改 identity.md）
+
+> 写入规则：只追加。每条 = 建议改什么 + 依据。
+
+（暂无提议）
+`;
+
+// 类目专属的「工作台层」补充指令：会插进系统提示词的「本类目」段。
+// 注意分工：类目身份 / 色板 / 违禁词 / 写法 → identity.md（每轮全量注入）；
+//          默认出图组合 / 默认比例 / 交付习惯等"工具怎么用" → 本文件。
+const AGENT_DEFAULT_INSTRUCTIONS = `# 新类目 · 工作台指令（instructions）
+
+> 只对本类目生效的补充指令，运行时插进系统提示词的「本类目」段（不写进代码、不用重新打包）。
+> 适合放：本类目默认出图组合、默认比例、常用风格词表、交付习惯等"工具怎么用"的约定。
+> 类目的身份定义、色板、违禁词、写法要求请写在 identity.md，不要在这里重复。
+
+（待填；留空则只用通用契约 + identity.md）
+`;
+
+function createAgent(agentId, name, description) {
+  const id = String(agentId || '').trim().toLowerCase();
+  if (!MEMORY_AGENT_RE.test(id)) {
+    throw new Error('agent id 只允许小写字母/数字/_/-，且 ≤32 位');
+  }
+  const root = memoryAgentsRoot();
+  const dir = path.join(root, id);
+  if (fs.existsSync(dir)) throw new Error('该类目已存在');
+  fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true });
+
+  // 有 data/memory/_template/ 就按它初始化（模板可改），否则用内置骨架
+  const templateDir = path.join(root, '_template');
+  const files = {
+    'identity.md': AGENT_DEFAULT_IDENTITY,
+    'instructions.md': AGENT_DEFAULT_INSTRUCTIONS,
+    'feedback.md': AGENT_DEFAULT_FEEDBACK,
+    'library.md': AGENT_DEFAULT_LIBRARY,
+    'proposals.md': AGENT_DEFAULT_PROPOSALS,
+  };
+  if (fs.existsSync(templateDir)) {
+    for (const fileName of Object.keys(files)) {
+      const from = path.join(templateDir, fileName);
+      if (fs.existsSync(from)) files[fileName] = fs.readFileSync(from, 'utf8');
+    }
+  }
+  for (const [fileName, content] of Object.entries(files)) {
+    fs.writeFileSync(path.join(dir, fileName), content, 'utf8');
+  }
+  fs.writeFileSync(
+    agentMetaPath(dir),
+    JSON.stringify({ id, name: String(name || id).trim() || id, description: String(description || '').trim() }, null, 2),
+    'utf8',
+  );
+  return { ok: true, agent: { id, name: String(name || id).trim() || id, description: String(description || '').trim() } };
+}
+
+
+// 文件结构：头部说明行（# / > / 占位符）+ 空行分隔的条目块。编辑按「条目块」为单位。
+
+function splitMemoryFile(raw) {
+  const lines = String(raw || '').split('\n');
+  const headerLines = [];
+  let index = 0;
+  for (; index < lines.length; index += 1) {
+    const line = lines[index];
+    const isHeaderish = /^\s*[#>]/.test(line) || /^\s*（暂无[^）]*）\s*$/.test(line) || line.trim() === '';
+    if (!isHeaderish) break;
+    headerLines.push(line);
+  }
+  const rest = lines.slice(index).join('\n');
+  const entries = rest.split(/\n{2,}/).map(block => block.trim()).filter(Boolean);
+  return { header: headerLines.join('\n'), entries };
+}
+
+function composeMemoryFile(header, entries, placeholder) {
+  const cleanHeader = String(header || '')
+    .split('\n')
+    .filter(line => !/^\s*（暂无[^）]*）\s*$/.test(line))
+    .join('\n')
+    .trimEnd();
+  const body = entries.length ? entries.join('\n\n') : (placeholder || '（暂无条目）');
+  return `${cleanHeader}\n\n${body}\n`;
+}
+
+function writeMemoryFileAtomic(agentId, kind, content) {
+  const dir = memoryAgentDir(agentId);
+  if (!dir) throw new Error('agent 不存在或 id 非法');
+  const fileName = MEMORY_FILE_NAMES[kind];
+  if (!fileName) throw new Error('不支持的文件类型');
+  const target = path.join(dir, fileName);
+  const tmp = `${target}.tmp`;
+  fs.writeFileSync(tmp, content, 'utf8');
+  fs.renameSync(tmp, target);
+  return { ok: true, file: fileName };
+}
+
+const MEMORY_PLACEHOLDERS = {
+  feedback: '（暂无条目）',
+  library: '（暂无条目）',
+  proposals: '（暂无提议）',
+};
+
+// ===== 规则效力：编号 / 标签 / 复发统计（规则会退役，不然只会越堆越多） =====
+
+const MEMORY_ADOPT_HEADING = '## 采纳规则（AI 提议 → 你采纳；带编号，可统计效力）';
+const MEMORY_RULE_RE = /^###\s*(R-\d{4})\s*(.*)$/;
+
+/** 解析 identity 里的结构化规则块：### R-0001 标题 + 标签/判据/规则/来源/采纳/状态 */
+function listAdoptedRules(agentId) {
+  const identity = readMemoryFile(agentId, 'identity') || '';
+  const rules = [];
+  let current = null;
+  const flush = () => {
+    if (current) rules.push(current);
+    current = null;
+  };
+  for (const rawLine of identity.split('\n')) {
+    const line = rawLine.replace(/\s+$/, '');
+    const heading = line.match(MEMORY_RULE_RE);
+    if (heading) {
+      flush();
+      current = {
+        id: heading[1],
+        title: heading[2].trim(),
+        tags: [],
+        criteria: '',
+        rule: '',
+        source: '',
+        adoptedAt: '',
+        status: '生效',
+        body: line,
+      };
+      continue;
+    }
+    if (!current) continue;
+    const trimmed = line.trim();
+    if (/^#{1,6}\s/.test(trimmed)) { flush(); continue; }   // 遇到下一个章节，规则块结束
+    if (!trimmed) { current.body += '\n'; continue; }
+    const field = trimmed.match(/^-\s*(标签|判据|规则|来源|采纳|状态)\s*[:：]\s*(.*)$/);
+    if (field) {
+      const value = field[2].trim();
+      if (field[1] === '标签') current.tags = extractMemoryTags(value);
+      else if (field[1] === '判据') current.criteria = value;
+      else if (field[1] === '规则') current.rule = value;
+      else if (field[1] === '来源') current.source = value;
+      else if (field[1] === '采纳') current.adoptedAt = value;
+      else current.status = value || '生效';
+    }
+    current.body += `\n${line}`;
+  }
+  flush();
+  return rules;
+}
+
+/** 下一个规则编号（编号永不复用，统计锚点不能飘） */
+function nextMemoryRuleId(agentId) {
+  const used = listAdoptedRules(agentId)
+    .map(rule => Number(String(rule.id).replace(/[^0-9]/g, '')))
+    .filter(Number.isFinite);
+  const max = used.length ? Math.max(...used) : 0;
+  return `R-${String(max + 1).padStart(4, '0')}`;
+}
+
+/**
+ * 规则效力：复发次数 = 纠错/案例条目里引用了该编号的条数。
+ * 状态自动判定（只在「生效」时改）：复发 ≥ 阈值 → 待修订；采纳满 N 天零引用 → 待复核。
+ */
+function memoryRuleStats(agentId) {
+  const rules = listAdoptedRules(agentId);
+  if (rules.length === 0) return [];
+  const sources = [
+    ...splitMemoryFile(readMemoryFile(agentId, 'feedback') || '').entries,
+    ...splitMemoryFile(readMemoryFile(agentId, 'library') || '').entries,
+  ];
+  return rules.map(rule => {
+    const hit = sources.filter(text => text.includes(rule.id));
+    const days = rule.adoptedAt && !Number.isNaN(Date.parse(rule.adoptedAt))
+      ? Math.floor((Date.now() - Date.parse(rule.adoptedAt)) / 86400000)
+      : 0;
+    let status = rule.status || '生效';
+    if (status === '生效') {
+      if (hit.length >= MEMORY_LIMITS.ruleReviseRefs) status = '待修订';
+      else if (hit.length === 0 && days >= MEMORY_LIMITS.ruleStaleDays) status = '待复核';
+    }
+    return { ...rule, refs: hit.length, days, status, body: rule.body.trim() };
+  });
+}
+
+/** 把一条自由文本建议规整成结构化规则块（缺字段就补，编号由系统分配避免撞号） */
+function formatMemoryRuleBlock(text, ruleId) {
+  const raw = String(text || '').trim();
+  if (!raw) throw new Error('内容为空');
+  const lines = raw.split('\n').map(line => line.replace(/\s+$/, ''));
+  const isField = line => /^-\s*(标签|判据|规则|来源|采纳|状态)\s*[:：]/.test(line.trim());
+  const titleLine = lines.find(line => line.trim() && !isField(line)) || '';
+  const title = titleLine.replace(/^#{1,6}\s*/, '').replace(/^R-\d{4}\s*/, '').trim().slice(0, 40) || '未命名规则';
+  const pick = label => {
+    const found = lines.find(line => new RegExp(`^-\\s*${label}\\s*[:：]`).test(line.trim()));
+    return found ? found.trim().replace(new RegExp(`^-\\s*${label}\\s*[:：]\\s*`), '') : '';
+  };
+  const bodyText = lines
+    .filter(line => line.trim() !== titleLine.trim())
+    .filter(line => !isField(line))
+    .join('\n')
+    .trim();
+  const declaredTags = extractMemoryTags(pick('标签'));
+  const tags = declaredTags.length > 0 ? declaredTags : extractMemoryTags(raw);
+  const rule = pick('规则') || bodyText || title;
+  const criteria = pick('判据');
+  const source = pick('来源');
+  const status = pick('状态') || '生效';
+  const stamp = new Date().toISOString().slice(0, 10);
+  const parts = [
+    `### ${ruleId} ${title}`,
+    `- 标签：${tags.map(tag => `#${tag}`).join(' ') || '（待补）'}`,
+  ];
+  if (criteria) parts.push(`- 判据：${criteria}`);
+  parts.push(`- 规则：${rule}`);
+  parts.push(`- 来源：${source || `采纳于 ${stamp}`}`);
+  parts.push(`- 采纳：${stamp}`);
+  parts.push(`- 状态：${status}`);
+  return parts.join('\n');
+}
+
+function listMemoryEntries(agentId) {
+  const read = kind => splitMemoryFile(readMemoryFile(agentId, kind) || '');
+  const dir = memoryAgentDir(agentId);
+  const sessions = [];
+  if (dir) {
+    const sessionsDir = path.join(dir, 'sessions');
+    try {
+      for (const name of fs.readdirSync(sessionsDir)) {
+        if (!name.endsWith('.md')) continue;
+        const id = name.slice(0, -3);
+        const content = readSessionState(agentId, id) || '';
+        const stat = fs.statSync(path.join(sessionsDir, name));
+        sessions.push({ id, content, updatedAt: new Date(stat.mtimeMs).toISOString() });
+      }
+    } catch { /* 目录不存在即跳过 */ }
+  }
+  sessions.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+  const identity = readMemoryFile(agentId, 'identity') || '';
+  return {
+    identity,
+    identityChars: identity.length,
+    entries: {
+      feedback: read('feedback').entries,
+      library: read('library').entries,
+      proposals: read('proposals').entries,
+    },
+    sessions,
+    rules: memoryRuleStats(agentId),
+    limits: {
+      entryChars: MEMORY_LIMITS.entryChars,
+      identityLimit: MEMORY_LIMITS.identity,
+      hitCount: MEMORY_LIMITS.hitCount,
+      hitTotalChars: MEMORY_LIMITS.hitTotalChars,
+      reviewThreshold: MEMORY_LIMITS.reviewThreshold,
+      ruleReviseRefs: MEMORY_LIMITS.ruleReviseRefs,
+      ruleStaleDays: MEMORY_LIMITS.ruleStaleDays,
+      tagWeight: MEMORY_LIMITS.tagWeight,
+    },
+  };
+}
+
+/** 增 / 改 / 删 一条记忆（你本人在「记忆」面板里操作） */
+function mutateMemoryEntry(agentId, kind, op, index, text) {
+  if (kind === 'identity') throw new Error('identity 请走「保存规则」接口');
+  const placeholder = MEMORY_PLACEHOLDERS[kind];
+  if (!placeholder) throw new Error('kind 只允许 feedback | library | proposals');
+  const { header, entries } = splitMemoryFile(readMemoryFile(agentId, kind) || '');
+  const body = String(text || '').trim();
+
+  if (op === 'add') {
+    if (!body) throw new Error('内容为空');
+    if (body.length > MEMORY_LIMITS.entryChars) {
+      throw new Error(`单条太长（${body.length} 字符，上限 ${MEMORY_LIMITS.entryChars}）`);
+    }
+    const stamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    entries.push(`- [${stamp}] ${body}`);
+  } else if (op === 'update') {
+    const at = Number(index);
+    if (!Number.isInteger(at) || at < 0 || at >= entries.length) throw new Error('条目不存在');
+    if (!body) throw new Error('内容为空');
+    if (body.length > MEMORY_LIMITS.entryChars) {
+      throw new Error(`单条太长（${body.length} 字符，上限 ${MEMORY_LIMITS.entryChars}）`);
+    }
+    entries[at] = body;
+  } else if (op === 'delete') {
+    const at = Number(index);
+    if (!Number.isInteger(at) || at < 0 || at >= entries.length) throw new Error('条目不存在');
+    entries.splice(at, 1);
+  } else {
+    throw new Error('op 只允许 add | update | delete');
+  }
+
+  writeMemoryFileAtomic(agentId, kind, composeMemoryFile(header, entries, placeholder));
+  return { ok: true, kind, op, count: entries.length };
+}
+
+/** 保存 identity（规则/违禁词/基础色板）：只有你本人能改，AI 无此权限 */
+function saveIdentityFile(agentId, text) {
+  const body = String(text || '');
+  if (body.length > 200000) throw new Error('规则文件过大（上限 20 万字符）');
+  writeMemoryFileAtomic(agentId, 'identity', body.endsWith('\n') ? body : `${body}\n`);
+  return { ok: true, chars: body.length };
+}
+
+/** 采纳一条建议：追加成结构化规则块（带编号），只追加、不动你原有的规则内容 */
+function adoptIntoIdentity(agentId, text) {
+  // 条目本身带「- [时间] 」前缀时先剥掉，避免出现两层时间戳
+  const body = String(text || '').trim().replace(/^-\s*\[\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?\]\s*/, '').trim();
+  if (!body) throw new Error('内容为空');
+  const ruleId = nextMemoryRuleId(agentId);
+  const block = formatMemoryRuleBlock(body, ruleId);
+  // 老格式的「采纳记录」段顺手升级成带编号的「采纳规则」段
+  const current = (readMemoryFile(agentId, 'identity') || '').replace(/##\s*采纳记录（复盘升级）/, MEMORY_ADOPT_HEADING);
+  const next = current.includes(MEMORY_ADOPT_HEADING)
+    ? `${current.trimEnd()}\n\n${block}\n`
+    : `${current.trimEnd()}\n\n${MEMORY_ADOPT_HEADING}\n\n${block}\n`;
+  writeMemoryFileAtomic(agentId, 'identity', next);
+  return { ok: true, chars: next.length, ruleId };
+}
+
+// ===== 复盘：累计新增 N 条纠错/案例就提醒你复盘 =====
+function memoryMetaPath(agentId) {
+  const dir = memoryAgentDir(agentId);
+  if (!dir) throw new Error('agent 不存在或 id 非法');
+  return path.join(dir, 'meta.json');
+}
+
+function readMemoryMeta(agentId) {
+  try {
+    const file = memoryMetaPath(agentId);
+    if (!fs.existsSync(file)) return { lastReviewAt: '' };
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return { lastReviewAt: String((parsed && parsed.lastReviewAt) || '') };
+  } catch {
+    return { lastReviewAt: '' };
+  }
+}
+
+function writeMemoryMeta(agentId, meta) {
+  const file = memoryMetaPath(agentId);
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(meta, null, 2), 'utf8');
+  fs.renameSync(tmp, file);
+}
+
+function memoryReviewStatus(agentId) {
+  const meta = readMemoryMeta(agentId);
+  const since = meta.lastReviewAt || '0000-00-00 00:00:00';
+  let count = 0;
+  for (const kind of ['feedback', 'library', 'proposals']) {
+    const { entries } = splitMemoryFile(readMemoryFile(agentId, kind) || '');
+    for (const entry of entries) {
+      const match = entry.match(/^-\s*\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]/);
+      if (match && match[1] > since) count += 1;
+    }
+  }
+  return {
+    due: count >= MEMORY_LIMITS.reviewThreshold,
+    count,
+    threshold: MEMORY_LIMITS.reviewThreshold,
+    lastReviewAt: meta.lastReviewAt,
+  };
+}
+
+function markMemoryReviewed(agentId) {
+  const stamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  writeMemoryMeta(agentId, { lastReviewAt: stamp });
+  return { ok: true, lastReviewAt: stamp };
+}
+
+function deleteSessionState(agentId, sessionId) {
+  const dir = memoryAgentDir(agentId);
+  if (!dir) throw new Error('agent 不存在或 id 非法');
+  const id = String(sessionId || '').trim();
+  if (!MEMORY_SESSION_RE.test(id)) throw new Error('session id 非法');
+  const file = path.join(dir, 'sessions', `${id}.md`);
+  try {
+    if (fs.existsSync(file)) fs.unlinkSync(file);
+  } catch (error) {
+    throw new Error(`删除失败：${normalizeError(error)}`);
+  }
+  return { ok: true };
+}
+
+
+function memoryPendingPath(agentId) {
+  const dir = memoryAgentDir(agentId);
+  if (!dir) throw new Error('agent 不存在或 id 非法');
+  return path.join(dir, MEMORY_PENDING_FILE);
+}
+
+function readPendingStore(agentId) {
+  const file = memoryPendingPath(agentId);
+  try {
+    if (!fs.existsSync(file)) return { items: [], rejected: [] };
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return {
+      items: Array.isArray(parsed && parsed.items) ? parsed.items : [],
+      rejected: Array.isArray(parsed && parsed.rejected) ? parsed.rejected : [],
+    };
+  } catch {
+    return { items: [], rejected: [] };
+  }
+}
+
+function writePendingStore(agentId, store) {
+  const file = memoryPendingPath(agentId);
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(store, null, 2), 'utf8');
+  fs.renameSync(tmp, file);   // 原子替换，避免写到一半的半截文件
+}
+
+/** 入队一条草稿（心跳/手动起草都走这里） */
+function queueMemoryDraft(agentId, kind, text, options = {}) {
+  const file = memoryPendingPath(agentId);
+  const prev = memoryWriteChains.get(file) || Promise.resolve();
+  const next = prev.then(() => {
+    const body = String(text || '').trim();
+    if (!body) throw new Error('内容为空');
+    if (body.length > MEMORY_LIMITS.entryChars) {
+      throw new Error(`单条太长（${body.length} 字符，上限 ${MEMORY_LIMITS.entryChars}）——请拆成多条更具体的记忆`);
+    }
+    const k = MEMORY_NOTE_KINDS.has(kind) ? kind : 'feedback';
+    const store = readPendingStore(agentId);
+    if (store.items.some(item => item.text === body && item.kind === k)) {
+      return { ok: true, duplicated: true, pending: store.items.length };
+    }
+    if (store.rejected.some(item => String(item.text || '') === body)) {
+      return { ok: true, rejectedBefore: true, pending: store.items.length };   // 你否过的，不再重复提
+    }
+    store.items.push({
+      id: `p_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+      kind: k,
+      text: body,
+      source: String(options.source || 'heartbeat'),
+      session: String(options.session || ''),
+      createdAt: new Date().toISOString(),
+    });
+    if (store.items.length > MEMORY_PENDING_MAX) store.items = store.items.slice(-MEMORY_PENDING_MAX);
+    writePendingStore(agentId, store);
+    return { ok: true, pending: store.items.length };
+  });
+  memoryWriteChains.set(file, next.catch(() => {}));
+  return next;
+}
+
+/** 确认一条草稿：按（可改过的）类型与内容写进真记忆文件，然后出队 */
+function approvePendingDraft(agentId, id, override = {}) {
+  const file = memoryPendingPath(agentId);
+  const prev = memoryWriteChains.get(file) || Promise.resolve();
+  const next = prev.then(async () => {
+    const store = readPendingStore(agentId);
+    const index = store.items.findIndex(item => item.id === String(id || ''));
+    if (index < 0) throw new Error('待确认条目不存在（可能已被处理）');
+    const item = store.items[index];
+    const kind = MEMORY_NOTE_KINDS.has(override.kind) ? override.kind : item.kind;
+    const text = String(override.text || item.text || '').trim();
+    if (!text) throw new Error('内容为空');
+    if (kind === 'session') {
+      await writeSessionState(agentId, override.session || item.session, text);
+    } else if (kind === 'proposal') {
+      await writeProposal(agentId, text);
+    } else {
+      await appendMemoryFile(agentId, kind, text);
+    }
+    store.items.splice(index, 1);
+    writePendingStore(agentId, store);
+    return { ok: true, kind, pending: store.items.length };
+  });
+  memoryWriteChains.set(file, next.catch(() => {}));
+  return next;
+}
+
+/** 驳回一条草稿：不写入，并记下内容避免心跳重复提 */
+function rejectPendingDraft(agentId, id) {
+  const file = memoryPendingPath(agentId);
+  const prev = memoryWriteChains.get(file) || Promise.resolve();
+  const next = prev.then(() => {
+    const store = readPendingStore(agentId);
+    const index = store.items.findIndex(item => item.id === String(id || ''));
+    if (index < 0) return { ok: true, removed: false };
+    const removed = store.items.splice(index, 1)[0];
+    if (removed && removed.text) {
+      store.rejected.push({ text: String(removed.text), kind: removed.kind, at: new Date().toISOString() });
+      if (store.rejected.length > MEMORY_REJECTED_MAX) store.rejected = store.rejected.slice(-MEMORY_REJECTED_MAX);
+    }
+    writePendingStore(agentId, store);
+    return { ok: true, removed: true, pending: store.items.length };
+  });
+  memoryWriteChains.set(file, next.catch(() => {}));
+  return next;
+}
+
+function writeSessionState(agentId, sessionId, text) {
+  const dir = memoryAgentDir(agentId);
+  if (!dir) throw new Error('agent 不存在或 id 非法');
+  const id = String(sessionId || '').trim();
+  if (!MEMORY_SESSION_RE.test(id)) throw new Error('session id 非法');
+  const body = String(text || '').trim();
+  if (!body) throw new Error('内容为空');
+  const sessionsDir = path.join(dir, 'sessions');
+  fs.mkdirSync(sessionsDir, { recursive: true });
+  const target = path.join(sessionsDir, `${id}.md`);
+  const prev = memoryWriteChains.get(target) || Promise.resolve();
+  const next = prev.then(() => {
+    const stamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
+    fs.appendFileSync(target, `\n## ${stamp}\n${body}\n`, 'utf8');
+  });
+  memoryWriteChains.set(target, next.catch(() => {}));
+  return next.then(() => ({ ok: true, file: `sessions/${id}.md` }));
+}
 async function handleApi(req, res, pathname, searchParams) {
   try {
     const apiPathname = pathname.replace(/\/+$/, '');
@@ -2739,6 +3696,211 @@ async function handleApi(req, res, pathname, searchParams) {
       } catch {
         sendJson(res, 200, { keywords: [] });
       }
+      return true;
+    }
+
+    if (apiPathname === '/api/nova/memory') {
+      const agentId = String(searchParams.get('agent') || 'squeeze').trim();
+      if (!MEMORY_AGENT_RE.test(agentId)) {
+        sendJson(res, 400, { error: 'invalid agent id（只允许 a-z0-9_- 且 ≤32 位）' });
+        return true;
+      }
+      if (req.method === 'GET') {
+        const query = String(searchParams.get('q') || '');
+        const sessionId = String(searchParams.get('session') || '');
+        sendJson(res, 200, buildAgentMemoryPayload(agentId, query, sessionId));
+        return true;
+      }
+      if (req.method === 'POST') {
+        // 写入端点：kind=feedback|library（Agent 可自主追加）/ proposal（规则改动建议）/ session（会话级单状态）
+        const body = await readJsonBody(req);
+        const kind = String(body.kind || '').trim();
+        const sessionId = String(body.session || '').trim();
+        try {
+          if (kind === 'session') {
+            const result = await writeSessionState(agentId, sessionId, body.text);
+            sendJson(res, 200, result);
+            return true;
+          }
+          if (kind === 'proposal') {
+            const result = await writeProposal(agentId, body.text);
+            sendJson(res, 200, result);
+            return true;
+          }
+          if (kind === 'feedback' || kind === 'library') {
+            const result = await appendMemoryFile(agentId, kind, body.text);
+            sendJson(res, 200, result);
+            return true;
+          }
+          sendJson(res, 400, { error: 'kind 只允许 feedback | library | proposal | session' });
+        } catch (error) {
+          sendJson(res, 400, { error: normalizeError(error) });
+        }
+        return true;
+      }
+      sendJson(res, 405, { error: 'method not allowed' });
+      return true;
+    }
+
+    if (apiPathname === '/api/nova/memory/pending') {
+      const agentId = String(searchParams.get('agent') || 'squeeze').trim();
+      if (!MEMORY_AGENT_RE.test(agentId)) {
+        sendJson(res, 400, { error: 'invalid agent id（只允许 a-z0-9_- 且 ≤32 位）' });
+        return true;
+      }
+      if (req.method === 'GET') {
+        const store = readPendingStore(agentId);
+        // rejected 只回最近 10 条文本：给心跳当「别再提这些」的黑名单
+        sendJson(res, 200, {
+          items: store.items,
+          rejected: store.rejected.slice(-10).map(entry => String(entry.text || '')).filter(Boolean),
+          review: memoryReviewStatus(agentId),
+        });
+        return true;
+      }
+      if (req.method === 'POST') {
+        const body = await readJsonBody(req);
+        const action = String(body.action || 'add').trim();
+        try {
+          if (action === 'add') {
+            const result = await queueMemoryDraft(agentId, body.kind, body.text, {
+              source: body.source,
+              session: body.session,
+            });
+            sendJson(res, 200, result);
+            return true;
+          }
+          if (action === 'approve') {
+            const result = await approvePendingDraft(agentId, body.id, {
+              kind: body.kind,
+              text: body.text,
+              session: body.session,
+            });
+            sendJson(res, 200, result);
+            return true;
+          }
+          if (action === 'reject') {
+            const result = await rejectPendingDraft(agentId, body.id);
+            sendJson(res, 200, result);
+            return true;
+          }
+          if (action === 'approveAll') {
+            const store = readPendingStore(agentId);
+            let approved = 0;
+            for (const item of store.items.slice()) {
+              try {
+                await approvePendingDraft(agentId, item.id);
+                approved += 1;
+              } catch { /* 单条失败不影响其他 */ }
+            }
+            sendJson(res, 200, { ok: true, approved, pending: readPendingStore(agentId).items.length });
+            return true;
+          }
+          sendJson(res, 400, { error: 'action 只允许 add | approve | reject | approveAll' });
+        } catch (error) {
+          sendJson(res, 400, { error: normalizeError(error) });
+        }
+        return true;
+      }
+      sendJson(res, 405, { error: 'method not allowed' });
+      return true;
+    }
+
+    // ── 软件更新 ──────────────────────────────────────────────────────────
+    // 桌面版：后端是被 require 进 Electron 主进程的，直接读 global.__novaUpdater 即可。
+    // 浏览器版：没有 Electron，退化成「拿 GitHub Release 比版本」的只读检查（只能提示，不能自动装）。
+    if (apiPathname === '/api/nova/update'
+      || apiPathname === '/api/nova/update/check'
+      || apiPathname === '/api/nova/update/install') {
+      const updater = global.__novaUpdater;
+      if (apiPathname === '/api/nova/update/install') {
+        if (req.method !== 'POST') { sendJson(res, 405, { error: 'method not allowed' }); return true; }
+        if (!updater) {
+          sendJson(res, 400, { ok: false, error: '当前不是桌面版，无法自动安装，请到 Release 页手动下载' });
+          return true;
+        }
+        sendJson(res, 200, updater.install());
+        return true;
+      }
+      if (apiPathname === '/api/nova/update/check') {
+        if (req.method !== 'POST') { sendJson(res, 405, { error: 'method not allowed' }); return true; }
+        if (updater) { sendJson(res, 200, await updater.check()); return true; }
+        sendJson(res, 200, await checkUpdateViaGithub());
+        return true;
+      }
+      // GET /api/nova/update：只读当前状态，不触发网络请求
+      if (updater) { sendJson(res, 200, updater.getState()); return true; }
+      sendJson(res, 200, {
+        mode: 'browser',
+        supported: false,
+        status: 'idle',
+        currentVersion: localAppVersion(),
+        channel: process.env.NOVA_UPDATE_CHANNEL || 'l',
+        message: '浏览器访问模式：能检查版本，更新请手动下载',
+        releaseUrl: `https://github.com/${NOVA_RELEASE_REPO}/releases`,
+      });
+      return true;
+    }
+
+    if (apiPathname === '/api/nova/agents') {
+      if (req.method === 'GET') {
+        sendJson(res, 200, { agents: listAgents(), defaultAgentId: 'squeeze' });
+        return true;
+      }
+      if (req.method === 'POST') {
+        const body = await readJsonBody(req);
+        try {
+          sendJson(res, 200, createAgent(body.id, body.name, body.description));
+        } catch (error) {
+          sendJson(res, 400, { error: normalizeError(error) });
+        }
+        return true;
+      }
+      sendJson(res, 405, { error: 'method not allowed' });
+      return true;
+    }
+
+    if (apiPathname === '/api/nova/memory/entries') {
+      const agentId = String(searchParams.get('agent') || 'squeeze').trim();
+      if (!MEMORY_AGENT_RE.test(agentId)) {
+        sendJson(res, 400, { error: 'invalid agent id（只允许 a-z0-9_- 且 ≤32 位）' });
+        return true;
+      }
+      if (req.method === 'GET') {
+        sendJson(res, 200, { ...listMemoryEntries(agentId), review: memoryReviewStatus(agentId) });
+        return true;
+      }
+      if (req.method === 'POST') {
+        const body = await readJsonBody(req);
+        try {
+          const op = String(body.op || '').trim();
+          if (op === 'saveIdentity') {
+            sendJson(res, 200, saveIdentityFile(agentId, body.text));
+            return true;
+          }
+          if (op === 'adopt') {
+            sendJson(res, 200, adoptIntoIdentity(agentId, body.text));
+            return true;
+          }
+          if (op === 'deleteSession') {
+            sendJson(res, 200, deleteSessionState(agentId, body.session));
+            return true;
+          }
+          if (op === 'reviewed') {
+            sendJson(res, 200, markMemoryReviewed(agentId));
+            return true;
+          }
+          if (op === 'add' || op === 'update' || op === 'delete') {
+            sendJson(res, 200, mutateMemoryEntry(agentId, String(body.kind || ''), op, body.index, body.text));
+            return true;
+          }
+          sendJson(res, 400, { error: 'op 只允许 add | update | delete | saveIdentity | adopt | deleteSession | reviewed' });
+        } catch (error) {
+          sendJson(res, 400, { error: normalizeError(error) });
+        }
+        return true;
+      }
+      sendJson(res, 405, { error: 'method not allowed' });
       return true;
     }
 
@@ -2908,6 +4070,11 @@ async function handleApi(req, res, pathname, searchParams) {
         } else {
           targetUrl = `${normalizedBaseUrl}/v1/responses`;
           authHeaders['Authorization'] = `Bearer ${apiKey}`;
+        }
+
+        // 本地补丁：opencode zen Go 需要 x-opencode-session（否则 400 MissingSessionID）
+        if (isOpencodeZenBaseUrl(normalizedBaseUrl)) {
+          authHeaders['x-opencode-session'] = NOVA_OPENCODE_SESSION;
         }
 
         if (stream) {
@@ -3472,6 +4639,13 @@ setInterval(cleanupRateLimitBuckets, CLEANUP_INTERVAL_MS).unref();
 const startServer = () => {
   const wss = setupWebSocketServer();
   const httpServer = http.createServer(async (req, res) => {
+    // 只绑回环时，再挡一道 Host 头：防止「域名解析到 127.0.0.1」的 DNS rebinding
+    // 让网页脚本打着别的域名来打本机接口（接口本身无鉴权，这道检查是唯一屏障）。
+    if (!ALLOW_LAN && !isLoopbackHostHeader(req.headers.host)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Forbidden: Nova 只接受本机回环访问（如需局域网访问请设 NOVA_ALLOW_LAN=true）');
+      return;
+    }
     const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || `${HOSTNAME}:${PORT}`}`);
     if (parsedUrl.pathname?.startsWith('/api/nova/')) {
       const handled = await handleApi(req, res, parsedUrl.pathname, parsedUrl.searchParams);
@@ -3513,8 +4687,13 @@ const startServer = () => {
     const localUrl = `http://localhost:${PORT}`;
     const listenUrl = `http://${HOSTNAME}:${PORT}`;
     console.log(`Nova Studio server ready on ${localUrl}`);
-    if (HOSTNAME !== 'localhost' && HOSTNAME !== '127.0.0.1') {
-      console.log(`Listening on ${listenUrl}`);
+    if (HOSTNAME === '127.0.0.1' || HOSTNAME === 'localhost' || HOSTNAME === '::1') {
+      console.log('绑定：仅本机回环（局域网访问不到）');
+    } else {
+      console.log(`⚠️ 已对局域网开放 ${listenUrl} —— 接口无鉴权，只在可信网络里用`);
+    }
+    if (!IS_LOOPBACK_REQUEST && !ALLOW_LAN) {
+      console.log(`（已忽略请求的绑定地址 ${REQUESTED_HOST}：非回环地址必须显式设 NOVA_ALLOW_LAN=true）`);
     }
   });
 

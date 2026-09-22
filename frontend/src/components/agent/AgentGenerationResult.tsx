@@ -3,17 +3,14 @@
 import { useState, useCallback } from 'react';
 import { Brain, Copy, Check, Clock, Loader2, RefreshCw, Sparkles, Image as ImageIcon, MessageSquare, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { renderReasoning } from '@/lib/render-reasoning';
 import type { AgentPhase } from '@/hooks/useAgentChat';
 
 interface AgentGenerationResultProps {
   text: string;
-  reasoning?: string;
 }
 
 interface AgentGenerationProgressProps {
   analysis: string;
-  reasoning?: string;
   prompt: string;
   parallelCount: number;
   phase: AgentPhase;
@@ -130,7 +127,7 @@ function GenerationSectionCard({ section, copiedText, onCopy }: GenerationSectio
   );
 }
 
-export function AgentGenerationResult({ text, reasoning }: AgentGenerationResultProps) {
+export function AgentGenerationResult({ text }: AgentGenerationResultProps) {
   const [copiedText, setCopiedText] = useState<string | null>(null);
   const sections = parseGenerationText(text);
   
@@ -146,19 +143,7 @@ export function AgentGenerationResult({ text, reasoning }: AgentGenerationResult
   
   return (
     <div className="space-y-3">
-      {/* 思考过程（可折叠） */}
-      {reasoning && (
-        <details className="group">
-          <summary className="flex cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground">
-            <MessageSquare className="h-3.5 w-3.5" />
-            思考过程
-            <span className="text-[10px] opacity-60 group-open:rotate-90 transition-transform">▶</span>
-          </summary>
-          <div className="mt-2 rounded-lg bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground">
-            <div dangerouslySetInnerHTML={{ __html: renderReasoning(reasoning) }} />
-          </div>
-        </details>
-      )}
+      {/* 思考过程不展示（推理原文仍留在消息里，只是不渲染） */}
       
       {/* 结构化显示三个部分 */}
       {sections.map((section, index) => (
@@ -175,7 +160,6 @@ export function AgentGenerationResult({ text, reasoning }: AgentGenerationResult
 
 export function AgentGenerationProgress({
   analysis,
-  reasoning,
   prompt,
   parallelCount,
   phase,
@@ -217,18 +201,7 @@ export function AgentGenerationProgress({
 
   return (
     <div className="space-y-3 animate-in fade-in-0 slide-in-from-bottom-2 duration-200">
-      {reasoning && (
-        <details className="group">
-          <summary className="flex cursor-pointer items-center gap-2 text-xs font-medium text-muted-foreground hover:text-foreground">
-            <MessageSquare className="h-3.5 w-3.5" />
-            思考过程
-            <span className="text-[10px] opacity-60 transition-transform group-open:rotate-90">▶</span>
-          </summary>
-          <div className="mt-2 rounded-lg bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground">
-            <div dangerouslySetInnerHTML={{ __html: renderReasoning(reasoning) }} />
-          </div>
-        </details>
-      )}
+      {/* 思考过程不展示（推理原文仍留在消息里，只是不渲染） */}
 
       {sections.map((section, index) => (
         <GenerationSectionCard

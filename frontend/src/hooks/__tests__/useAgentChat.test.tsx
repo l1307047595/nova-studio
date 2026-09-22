@@ -613,6 +613,73 @@ describe('useAgentChat session binding', () => {
     expect(taskClient.getNovaTask).not.toHaveBeenCalled();
   });
 
+  it('流式期间切走会话：回复仍写进发起它的会话（思考过程有持久性）', async () => {
+    let onDone!: (fullText: string, parsedProposal: null, parsedProposals?: undefined) => void;
+    let onDelta!: (token: string) => void;
+    client.streamAgentChat.mockImplementation((_request, callbacks) => {
+      onDone = callbacks.onDone;
+      onDelta = callbacks.onDelta;
+      return { abort: vi.fn() };
+    });
+
+    const hook = renderHook(({ sessionId }: { sessionId: string }) => useAgentChat(sessionId), {
+      initialProps: { sessionId: 'origin-session' },
+    });
+    await waitFor(() => expect(hook.result.current.ready).toBe(true));
+    await act(async () => hook.result.current.sendMessage('按参考图出主图', [], []));
+
+    // 开流就登记占位消息（streaming: true），并且写进「发起它的会话」
+    const opener = store.putMessage.mock.calls.find((call: unknown[]) => (call[0] as { role?: string }).role === 'assistant');
+    expect(opener).toBeTruthy();
+    expect((opener![0] as { streaming?: boolean }).streaming).toBe(true);
+    expect(opener![1]).toBe('origin-session');
+
+    // 思考中切走会话：这一下会把 generation 作废（真实场景里 setAgentSession 就是这么干的）
+    hook.rerender({ sessionId: 'other-session' });
+    act(() => { store.invalidateAgentSession(); });
+    const before = store.putMessage.mock.calls.length;
+
+    // 切走之后模型才输出完 —— 内容必须落到原会话，不能丢
+    act(() => onDelta('切走之后才到达的正文'));
+    act(() => onDone('切走之后才到达的正文', null, undefined));
+
+    const written = store.putMessage.mock.calls
+      .slice(before)
+      .filter((call: unknown[]) => (call[0] as { text?: string }).text?.includes('切走之后才到达的正文'));
+    expect(written.length).toBeGreaterThan(0);
+    expect(written.every((call: unknown[]) => call[1] === 'origin-session')).toBe(true);
+    // 收尾写入不能还挂着 streaming 标记（否则下次加载会被误判成中断）
+    expect((written[written.length - 1][0] as { streaming?: boolean }).streaming).toBeFalsy();
+  });
+
+  it('审核通过后：发给生图任务的是英文提示词（用户改过中文则回退中文）', async () => {
+    let onDone!: (fullText: string, parsedProposal: ReturnType<typeof proposal>, parsedProposals?: ReturnType<typeof proposal>[]) => void;
+    client.streamAgentChat.mockImplementation((_request, callbacks) => {
+      onDone = callbacks.onDone;
+      return { abort: vi.fn() };
+    });
+
+    // 参考图字节必须能取到，否则 approveProposal 会在下载参考图那步直接抛错、不建任务；
+    // createNovaTask 也要给个已 resolve 的返回值，否则后续轮询会让 await 挂住
+    store.getAgentImageBase64.mockResolvedValue({ data: 'AAAA', mimeType: 'image/png' });
+    taskClient.createNovaTask.mockResolvedValue('task-lang-1');
+    taskClient.getNovaTask.mockResolvedValue({ status: 'completed' });
+
+    const { result } = renderHook(() => useAgentChat('prompt-lang-session'));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await act(async () => result.current.sendMessage('出一张主图', [], []));
+    const p = proposal({ prompt: '中文审阅版提示词', promptEn: 'English generation prompt' });
+    act(() => onDone('', p, [p]));
+
+    // 中文未改：发英文
+    let approval!: Promise<void>;
+    act(() => { approval = result.current.approveProposal('中文审阅版提示词', ['img_a'], 'image-model', resolvedLayout(), 'English generation prompt'); });
+    await act(async () => { await approval; });
+    const firstCall = taskClient.createNovaTask.mock.calls[taskClient.createNovaTask.mock.calls.length - 1][0];
+    expect(firstCall.prompt).toBe('English generation prompt');
+    expect(firstCall.mode).toBe('image-to-image');
+  });
+
   it('does not resurrect a task whose creation finishes after stopStreaming', async () => {
     let onDone!: (fullText: string, parsedProposal: ReturnType<typeof proposal>, parsedProposals?: ReturnType<typeof proposal>[]) => void;
     const task = deferred<string>();
