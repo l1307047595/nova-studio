@@ -12,13 +12,29 @@ const BACKEND_READY_POLL_MS = 300;
 
 let mainWindow = null;
 
-// 数据必须落在「你双击的那个 exe 旁边」，不能落在 portable 每次解压的临时目录。
-// electron-builder portable 会把 exe 解到 %TEMP%\... 再启动，app.getPath('exe')
-// 指向临时副本；真正的 C:\nova 在 PORTABLE_EXECUTABLE_DIR。
+// 数据目录（userData）决定配置 / 记忆 / 素材 / 会话落在哪，必须在 app ready 之前定好。
+//
+// 教训（真实事故）：曾经把打包版的数据放在「exe 旁边」= 安装目录里面，
+// 结果每次更新（安装包重写安装目录）都会把 data/ 一起清掉 ——
+// 用户表现为「每次更新都要重新配置一遍」，同时记忆、生成图、会话记录也全被重置。
+// 所以：只有 portable（exe 会被解到 %TEMP%，必须把数据钉在 exe 旁）才用 exe 旁边的 data；
+// 安装版用 Electron 默认的 %APPDATA%\<productName>，它在安装目录之外，更新不会碰。
 function resolveUserDataDir() {
   if (process.env.NOVA_DATA_DIR) return process.env.NOVA_DATA_DIR;
   const portableRoot = process.env.PORTABLE_EXECUTABLE_DIR;
   if (portableRoot) return path.join(portableRoot, 'data');
+  if (app.isPackaged) {
+    // 用 exe 名分产品：HK / L 各自独立，绝不能共用一份 userData
+    // （共用会让两个版本的记忆、会话、素材互相串味）。
+    const appDirName = path.basename(process.execPath).replace(/\.exe$/i, '') || app.getName();
+    return path.join(app.getPath('appData'), appDirName);
+  }
+  return null; // 开发态：交给 Electron 默认 userData
+}
+
+/** 旧版本把数据写在安装目录里的位置（用于一次性迁移） */
+function resolveLegacyUserDataDir() {
+  if (process.env.NOVA_DATA_DIR || process.env.PORTABLE_EXECUTABLE_DIR) return null;
   if (app.isPackaged && process.platform === 'win32') {
     return path.join(path.dirname(process.execPath), 'data');
   }
@@ -26,8 +42,27 @@ function resolveUserDataDir() {
 }
 
 const resolvedUserDataDir = resolveUserDataDir();
+const defaultUserDataDir = app.getPath('userData');
 if (resolvedUserDataDir) {
   app.setPath('userData', resolvedUserDataDir);
+}
+
+// 一次性迁移：老安装把数据放在安装目录里（会被更新清掉）。若新位置还没有数据、
+// 而老位置有，就把老数据整体搬过来，避免这次升级丢配置/记忆。
+try {
+  const legacyDir = resolveLegacyUserDataDir();
+  const targetDir = path.join(resolvedUserDataDir || defaultUserDataDir);
+  if (legacyDir && legacyDir !== targetDir && fs.existsSync(legacyDir)) {
+    const hasNew = fs.existsSync(path.join(targetDir, 'Local Storage'))
+      || fs.existsSync(path.join(targetDir, 'memory'));
+    if (!hasNew) {
+      fs.mkdirSync(targetDir, { recursive: true });
+      fs.cpSync(legacyDir, targetDir, { recursive: true, force: false });
+      console.log('[data-migrate] 已把安装目录内的旧数据迁移到:', targetDir);
+    }
+  }
+} catch (error) {
+  console.warn('[data-migrate] 迁移失败（不阻断启动）:', error && error.message ? error.message : error);
 }
 
 // 桌面壳自己的 DevTools 端口默认关闭。仅在显式设置
@@ -81,7 +116,11 @@ function installProxiedFetch() {
 // 默认固定 31207；被占用时递增重试几次，仍不行才退回随机端口兜底。
 const BACKEND_PORT_START = parseInt(process.env.NOVA_BACKEND_PORT || '31207', 10);
 const BACKEND_PORT_MAX_ATTEMPTS = 10;
-
+// 更新后重启时，上一个实例可能还在退出、仍占着基础端口。端口就是页面 origin，
+// 换端口等于换个“新网站”（localStorage/IndexedDB 按 origin 隔离），
+// 所以先在基础端口上等一会儿，再考虑漂移。
+const BACKEND_PORT_WAIT_MS = parseInt(process.env.NOVA_BACKEND_PORT_WAIT_MS || '20000', 10);
+  
 function tryListen(port) {
   return new Promise((resolve, reject) => {
     const probe = net.createServer();
@@ -91,9 +130,17 @@ function tryListen(port) {
     });
   });
 }
-
+  
 async function resolveBackendPort() {
-  for (let i = 0; i < BACKEND_PORT_MAX_ATTEMPTS; i += 1) {
+  const deadline = Date.now() + BACKEND_PORT_WAIT_MS;
+  while (Date.now() < deadline) {
+    try {
+      return await tryListen(BACKEND_PORT_START);
+    } catch {
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  }
+  for (let i = 1; i < BACKEND_PORT_MAX_ATTEMPTS; i += 1) {
     try {
       return await tryListen(BACKEND_PORT_START + i);
     } catch { /* 端口被占，试下一个 */ }

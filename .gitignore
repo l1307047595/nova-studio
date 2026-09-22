@@ -103,3 +103,6 @@ backend/data/memory/
 /dist/
 backend/chrome-profile/
 *.bak-*
+
+# 打包时从 build-seeds 拷贝进来，属构建产物
+backend/memory-seed/
