@@ -490,7 +490,18 @@ export function useAgentChat(sessionId = 'default') {
       imageModelRef.current = validImageModel;
       setImageModelState(validImageModel);
 
-      if (pending) {
+      // 铁律闸门同样适用于「恢复的提案」：早期存下的、或本来就没有参考图的提案不许复活，
+      // 否则它会绕过流式阶段的检查，一点「允许并生成」就成了无参考图的生成。
+      const restoredRefCount = pending?.proposal?.referencedImageIds?.length ?? 0;
+      if (pending && restoredRefCount === 0) {
+        void clearPendingProposal(sessionIdRef.current);
+        void appendMessage({
+          id: generateUUID(),
+          role: 'system-note',
+          text: '⚠️ 已丢弃一条没有引用任何参考图的旧提案（生图必须以参考图中的商品为基础）。请上传 / 抓取商品图后重新发起。',
+          createdAt: Date.now(),
+        });
+      } else if (pending) {
         pendingAnalysisRef.current = pending.pendingAnalysis;
         pendingReasoningRef.current = pending.pendingReasoning;
         isReeditRef.current = pending.isReedit;
@@ -1842,6 +1853,19 @@ export function useAgentChat(sessionId = 'default') {
     const promptEn = (finalPromptEn || '').trim() || undefined;
     // 真正发给生图模型的那一份：有英文用英文，没有就用中文
     const generationPrompt = promptEn || prompt;
+    // 铁律（零、铁律第 2 条）：没有参考图就不出图。
+    // 必须在这里硬拦 —— 否则下面建任务时会静默降级成「文生图」（实测能走到：页面重载后恢复的旧提案、
+    // 或用户在提案卡里把参考图全部取消勾选）。宁可不出图，也不许出无参考图的图。
+    if (selectedImageIds.length === 0) {
+      setError('必须先选至少一张参考图（铁律：没有参考图就不出图）');
+      void appendMessage({
+        id: generateUUID(),
+        role: 'system-note',
+        text: '⚠️ 已拦下：这条提案没有引用任何参考图（生图必须以你上传的参考图中的商品为基础 · 零、铁律第 2 条）。请勾选参考图，或先上传 / 抓取该商品的参考图，再点「允许并生成」。',
+        createdAt: Date.now(),
+      });
+      return;
+    }
     if (prompt.length === 0) {
       setError('提示词不能为空');
       return;
@@ -1895,11 +1919,15 @@ export function useAgentChat(sessionId = 'default') {
       const provider = resolveImageTaskProvider(model);
       if (!isSessionCurrent(sessionGeneration) || generationEpochRef.current !== generationEpoch) return;
       const layout = resolveSubmitLayout(model, params.outputSize, params.aspectRatio, prompt);
+      // 兜底：Agent 通道一律图生图。参考图取不到时明确报错，绝不静默降级成「文生图」。
+      if (references.length === 0) {
+        throw new Error('没有可用的参考图，已阻止提交（生图必须以参考图中的商品为基础）');
+      }
       const taskId = await createNovaTask({
         apiKey: provider.apiKey,
         baseUrl: provider.baseUrl,
         protocol: provider.protocol,
-        mode: references.length > 0 ? 'image-to-image' : 'text-to-image',
+        mode: 'image-to-image',
         prompt: generationPrompt,
         outputSize: layout.outputSize,
         customSize: layout.outputSize === 'auto' ? undefined : params.customSize,

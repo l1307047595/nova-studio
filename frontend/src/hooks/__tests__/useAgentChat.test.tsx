@@ -159,6 +159,9 @@ describe('useAgentChat session binding', () => {
       imageModel: null,
     });
     store.loadPendingProposal.mockResolvedValue(null);
+    // 默认：参考图字节可取到。铁律要求「没有参考图就不出图」，所以凡是要走到建任务的用例
+    // 都得先备好参考图；个别用例用 mockResolvedValueOnce(null) 覆盖成取不到的场景。
+    store.getAgentImageBase64.mockResolvedValue({ data: 'AAAA', mimeType: 'image/png' });
     store.loadPendingGeneration.mockResolvedValue(null);
     store.loadPendingGenerationTasks.mockResolvedValue([]);
     store.putMessage.mockResolvedValue(undefined);
@@ -425,10 +428,10 @@ describe('useAgentChat session binding', () => {
     act(() => onDone('', first, [first, second, third]));
 
     await act(async () => {
-      await result.current.approveProposal('确认商品 A', [], 'image-model', resolvedLayout());
+      await result.current.approveProposal('确认商品 A', ['img_a'], 'image-model', resolvedLayout());
     });
     await act(async () => {
-      await result.current.approveProposal('确认商品 B', [], 'image-model', resolvedLayout());
+      await result.current.approveProposal('确认商品 B', ['img_a'], 'image-model', resolvedLayout());
     });
 
     expect(store.savePendingGenerationTask).toHaveBeenCalledTimes(2);
@@ -573,7 +576,7 @@ describe('useAgentChat session binding', () => {
     act(() => onDone('', pending, [pending]));
 
     let approval!: Promise<void>;
-    act(() => { approval = result.current.approveProposal(pending.prompt, [], 'image-model', resolvedLayout()); });
+    act(() => { approval = result.current.approveProposal(pending.prompt, ['img_a'], 'image-model', resolvedLayout()); });
     await waitFor(() => expect(store.savePendingGenerationTask).toHaveBeenCalled());
     act(() => result.current.stopStreaming());
     await act(async () => saveGate.resolve());
@@ -601,7 +604,14 @@ describe('useAgentChat session binding', () => {
     act(() => onDone('', first, [first, next]));
 
     let approval!: Promise<void>;
-    act(() => { approval = hook.result.current.approveProposal(first.prompt, [], 'image-model', resolvedLayout()); });
+    act(() => { approval = hook.result.current.approveProposal(first.prompt, ['img_a'], 'image-model', resolvedLayout()); });
+    // 参考图字节要先取（铁律：必须有参考图），这里等它取完再卸载 ——
+    // 要测的仍然是「createNovaTask 尚未返回时就切走会话」
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     hook.unmount();
     task.resolve('old-session-task');
     await approval;
@@ -698,7 +708,7 @@ describe('useAgentChat session binding', () => {
     act(() => onDone('', pending, [pending]));
 
     let approval!: Promise<void>;
-    act(() => { approval = result.current.approveProposal(pending.prompt, [], 'image-model', resolvedLayout()); });
+    act(() => { approval = result.current.approveProposal(pending.prompt, ['img_a'], 'image-model', resolvedLayout()); });
     act(() => result.current.stopStreaming());
     await act(async () => {
       task.resolve('late-task');
@@ -707,15 +717,36 @@ describe('useAgentChat session binding', () => {
 
     expect(store.savePendingGenerationTask).not.toHaveBeenCalled();
     expect(taskClient.getNovaTask).not.toHaveBeenCalled();
+
+    // 收尾：把本条用例可能留下的轮询/定时器停掉，否则会污染下一条用例
+    // （实测：残留轮询会在下一条用例里继续跑到它的 pollCalls 里）
+    act(() => { result.current.stopStreaming(); });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
   });
 
   it('keeps cancellation isolated when a later task starts', async () => {
+    // 上一条用例可能还有未收敛的异步流程；先放它跑完，否则共享的 sessionGeneration
+    // 会被它推进，本用例批准后会被误判成「过期会话」而直接返回（不建任务、不轮询）。
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise(resolve => setTimeout(resolve, 0));
+    });
     let onDone!: (fullText: string, parsedProposal: ReturnType<typeof proposal>, parsedProposals?: ReturnType<typeof proposal>[]) => void;
     const pollCalls: string[] = [];
     client.streamAgentChat.mockImplementation((_request, callbacks) => {
       onDone = callbacks.onDone;
       return { abort: vi.fn() };
     });
+    // 先重置：上一条用例可能留下**未被消费**的 mockResolvedValueOnce，
+    // 而 beforeEach 里的 vi.clearAllMocks() 只清调用记录、不清实现 ——
+    // 那条排队中的返回值会偷走本用例的第一次 createNovaTask（踩过）
+    taskClient.createNovaTask.mockReset();
+    taskClient.getNovaTask.mockReset();
     taskClient.createNovaTask
       .mockResolvedValueOnce('task-1')
       .mockResolvedValueOnce('task-2')
@@ -725,7 +756,7 @@ describe('useAgentChat session binding', () => {
       return { status: 'processing' };
     });
 
-    const { result } = renderHook(() => useAgentChat('session-42'));
+    const { result } = renderHook(() => useAgentChat('cancel-isolation-session'));
     await waitFor(() => expect(result.current.ready).toBe(true));
     vi.useFakeTimers();
 
@@ -737,19 +768,25 @@ describe('useAgentChat session binding', () => {
     const third = proposal({ productKey: 'product-c' });
     act(() => onDone('', first, [first, second, third]));
 
-    await act(async () => {
-      await result.current.approveProposal(first.prompt, [], 'image-model', resolvedLayout());
+    // 批准流程里现在多了一次「取参考图字节」的 await（铁律：必须带参考图），
+    // 先把 approve 本身跑完，再把定时器推进到轮询首个间隔之后，最后看轮询记录
+    // （批准时多了一次「取参考图字节」的 await，创建不再是同一 tick 内同步完成）。
+    let approval1!: Promise<void>;
+    act(() => {
+      // 上一条用例的残留异步流程可能推进过共享的 sessionGeneration，
+      // 会让本用例在批准流程里被判成「过期会话」而中途返回
+      sessionGeneration.value = 0;
+      approval1 = result.current.approveProposal(first.prompt, ['img_a'], 'image-model', resolvedLayout());
     });
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await act(async () => { await approval1; });
+    await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
     expect(pollCalls).toContain('task-1');
 
     await act(async () => {
-      await result.current.approveProposal(second.prompt, [], 'image-model', resolvedLayout());
+      await result.current.approveProposal(second.prompt, ['img_a'], 'image-model', resolvedLayout());
     });
     await act(async () => {
+      await Promise.resolve();
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -757,6 +794,7 @@ describe('useAgentChat session binding', () => {
 
     const task1CallsBeforeStop = pollCalls.filter(taskId => taskId === 'task-1').length;
     const task2CallsBeforeStop = pollCalls.filter(taskId => taskId === 'task-2').length;
+
     act(() => result.current.stopStreaming());
     await act(async () => {
       await Promise.resolve();
@@ -769,7 +807,7 @@ describe('useAgentChat session binding', () => {
     const replacement = proposal({ productKey: 'replacement' });
     act(() => onDone('', replacement, [replacement]));
     let replacementApproval!: Promise<void>;
-    act(() => { replacementApproval = result.current.approveProposal(replacement.prompt, [], 'image-model', resolvedLayout()); });
+    act(() => { replacementApproval = result.current.approveProposal(replacement.prompt, ['img_a'], 'image-model', resolvedLayout()); });
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
@@ -818,6 +856,31 @@ describe('useAgentChat session binding', () => {
       'session-42',
       0,
     );
+  });
+
+  it('铁律：批准时没有参考图 → 拦下、不建任务（不许静默变成文生图）', async () => {
+    let onDone!: (fullText: string, parsedProposal: ReturnType<typeof proposal>, parsedProposals?: ReturnType<typeof proposal>[]) => void;
+    client.streamAgentChat.mockImplementation((_request, callbacks) => {
+      onDone = callbacks.onDone;
+      return { abort: vi.fn() };
+    });
+
+    const { result } = renderHook(() => useAgentChat('session-42'));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await act(async () => result.current.sendMessage('按参考图修改', [], []));
+    const pending = proposal({ action: 'edit', referencedImageIds: ['img_a'] });
+    act(() => onDone('', pending, [pending]));
+    await waitFor(() => expect(result.current.phase).toBe('proposal'));
+
+    // 批准时把参考图全部取消勾选 → 必须被拦下，绝不提交成文生图
+    await act(async () => {
+      await result.current.approveProposal('按参考图修改', [], 'image-model', resolvedLayout());
+    });
+
+    expect(taskClient.createNovaTask).not.toHaveBeenCalled();
+    expect(result.current.phase).toBe('proposal');
+    expect(result.current.error).toMatch(/参考图/);
+    expect(store.savePendingGenerationTask).not.toHaveBeenCalled();
   });
 
   it('参考图下载失败时保留提案并显示错误，不退化为文字生图', async () => {
