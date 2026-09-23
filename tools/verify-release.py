@@ -106,11 +106,32 @@ def main():
             check(f"{name} exe 是 PE 文件", head == b"MZ")
             print(f"        （图标核对用 --icon-check 单独跑）")
 
-    print(f"\n[5] 种子")
+    print(f"\n[5] 种子（内容也要查：这次漏过 .bak 与个人记录文件）")
     seed_src = os.path.join(ROOT, "backend", "memory-seed")
     cats = sorted(os.listdir(seed_src)) if os.path.isdir(seed_src) else []
     print(f"        当前 backend/memory-seed = {cats}")
     print("        （HK 应含 squeeze/beauty/general；L 只含 general —— 按最后打的版本判断）")
+
+    junk = []
+    for base, _dirs, files in os.walk(seed_src):
+        for name in files:
+            if name.endswith(".bak") or ".bak-" in name or name in ("pending.json", ".DS_Store") or name.endswith(".tmp"):
+                junk.append(os.path.relpath(os.path.join(base, name), seed_src))
+    check("种子内无运行期垃圾（.bak / pending.json / tmp）", not junk, f"发现 {junk}" if junk else "干净")
+
+    # 滚动记录文件必须只剩模板头（不许带任何记录行）
+    for base, _dirs, files in os.walk(seed_src):
+        for name in files:
+            if name.startswith("recent") and name.endswith(".md"):
+                path = os.path.join(base, name)
+                with open(path, encoding="utf-8") as fh:
+                    body_lines = [ln for ln in fh.read().splitlines() if ln.strip()]
+                records = [ln for ln in body_lines if not ln.startswith("#") and not ln.startswith(">")]
+                check(
+                    f"{os.path.relpath(path, seed_src)} 不含个人记录",
+                    not records,
+                    f"只剩模板头（{len(body_lines)} 行）" if not records else f"仍含 {len(records)} 行记录 ✗",
+                )
 
     print()
 

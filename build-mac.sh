@@ -53,8 +53,8 @@ install_deps() {
 install_deps
 
 echo "== 放记忆种子 =="
-rm -rf backend/memory-seed
-cp -R "$SEED" backend/memory-seed
+# 用统一脚本准备种子：自动剔除 .bak 等运行期垃圾 + 清空 recent.md 里的个人记录
+python3 tools/prepare-seed.py "$(basename "$SEED")"
 echo "  类目数：$(find backend/memory-seed -name agent.json | wc -l | tr -d ' ')"
 
 echo "== 打包（arm64 + x64，未签名）=="
