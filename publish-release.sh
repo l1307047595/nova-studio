@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # 发版：把打好的安装包 + 更新元数据传到 GitHub Releases，客户端就能自动更新。
 #
+# ⚠️ 发版闸门：本脚本只允许在【主对话】里、且用户已明确同意发版时执行。
+#    子代理 / 子分支一律不得发版（只能实现 + 本地验证，交回主对话整合）。
+#    所以必须显式带上批准标记，否则脚本直接拒绝（exit 3）：
+#
 # 用法：
-#   GH_TOKEN=ghp_xxx bash publish-release.sh              # 用 package.json 的版本号，发 hk 和 l 两条通道
-#   GH_TOKEN=ghp_xxx bash publish-release.sh 3.4.1        # 指定版本
-#   GH_TOKEN=ghp_xxx bash publish-release.sh 3.4.1 hk     # 只发一条通道
-#   bash publish-release.sh 3.4.1 --notes "改了记忆命中排序"
+#   NOVA_RELEASE_APPROVED=1 bash publish-release.sh              # 用 package.json 的版本号，发 hk 和 l 两条通道
+#   NOVA_RELEASE_APPROVED=1 bash publish-release.sh 3.4.1        # 指定版本
+#   NOVA_RELEASE_APPROVED=1 bash publish-release.sh 3.4.1 hk     # 只发一条通道
+#   NOVA_RELEASE_APPROVED=1 bash publish-release.sh 3.4.1 --notes "改了记忆命中排序"
 #
 # token 也可以放在项目根的 .gh-token 文件里（已在 .gitignore 里排除）。
 # PAT 权限只需要：Contents → Read and write（fine-grained token）。
@@ -22,6 +26,19 @@ if [ -z "$VERSION" ]; then
   VERSION="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/package.json" | head -1)"
 fi
 shift || true
+
+# ── 发版闸门（机械限制，不靠自觉）─────────────────────────────
+# 规则：发版是【主对话】的独占动作。子代理 / 子分支一律不得发版，
+# 只做「实现 + 本地验证」，把改动交回主对话整合；等用户在主对话里
+# 明确说了「发」，才由主对话执行本脚本。
+# 这一道放在最前面：没有显式批准标记，连 token 都不读，直接拒绝。
+if [ "${NOVA_RELEASE_APPROVED:-}" != "1" ]; then
+  echo "❌ 拒绝发版：本脚本只允许在主对话里、且用户已明确同意发版时执行。"
+  echo "   子代理 / 子分支请改为：完成实现 + 本地验证，然后把 diff 与产物路径交回主对话。"
+  echo "   确实要发时，由主对话加批准标记执行："
+  echo "     NOVA_RELEASE_APPROVED=1 bash publish-release.sh ${VERSION:-<版本>}"
+  exit 3
+fi
 
 NOTES="Nova Studio $VERSION"
 CHANNELS=()

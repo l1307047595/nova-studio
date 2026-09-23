@@ -73,7 +73,7 @@ Mac 上装个 Node 就能双击启动，界面在浏览器里。
 
 **路线 B：脚本**（Mac 上也能跑，已改成跨平台）
 ```bash
-bash publish-release.sh 3.4.1 l      # 只发 l 通道
+NOVA_RELEASE_APPROVED=1 bash publish-release.sh 3.4.1 l      # 只发 l 通道（批准标记必须带）
 ```
 它会自动跳过不存在的文件，传完还会回读核对资产清单。
 

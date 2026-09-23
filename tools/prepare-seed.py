@@ -21,7 +21,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 运行期垃圾：备份、临时、日志、未确认草稿、系统文件
 JUNK_PATTERNS = [
-    "*.bak", "*.bak-*", "*.tmp", "*.log", "*.old", "*~", "*.swp",
+    # 用 *.bak* 而不是 "*.bak"/"*.bak-*" —— 后者漏掉 .bak2-<时间戳> 这种命名
+    # （踩过：备份文件跟着安装包发给了同事）
+    "*.bak*", "*.orig", "*.tmp", "*.log", "*.old", "*~", "*.swp",
     ".DS_Store", "Thumbs.db",
     "pending.json",       # 待确认草稿，属于个人工作现场
     "pending.json.*",
