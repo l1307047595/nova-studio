@@ -50,6 +50,11 @@ export interface StoredJob {
   originalPrompt?: string;
   blobUrls?: string[];
   imageDownloadProgress?: ImageDownloadProgress;
+  /**
+   * 套图模式：本次出的是「一张等分拼图」，下载后要按这个网格**本地切成 N 张**。
+   * 有它时任务完成后 images 会变成切出来的 N 张（而不是 1 张拼图）。
+   */
+  sheetGrid?: { rows: number; cols: number; cells: number };
 }
 
 const JOBS_KEY = 'nova-jobs';

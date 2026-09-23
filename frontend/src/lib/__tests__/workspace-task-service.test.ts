@@ -10,7 +10,7 @@ import {
   submitTextToImage,
   type SubmitActions,
 } from '@/lib/workspace-task-service';
-import { buildSetPrompts } from '@/lib/set-prompts';
+import { buildSetSheetPrompt, resolveSetSheetLayout } from '@/lib/set-prompts';
 vi.mock('@/lib/ccode-task-client', async importOriginal => {
   const actual = await importOriginal<typeof import('@/lib/ccode-task-client')>();
   return {
@@ -275,67 +275,70 @@ describe('finalizeCompletedServerTask', () => {
   });
 });
 
-describe('套图模式：一条提示词拆成 N 个独立任务', () => {
+describe('套图模式：1 张等分拼图 → 出图后本地切 N 张', () => {
   const refFiles = [{ id: 'f1', name: 'ref.png', dataUrl: 'data:image/png;base64,AAA', mimeType: 'image/png' }];
 
-  function makeSubmitInput(prompts?: string[]) {
+  function makeSubmitInput(extra: Record<string, unknown> = {}) {
     return {
       prompt: '帮我生成电商套图',
-      ...(prompts ? { prompts } : {}),
       files: refFiles,
-      outputSize: '1K' as const,
-      aspectRatio: '1:1' as const,
+      outputSize: '2K' as const,
+      aspectRatio: '3:2' as const,
       temperature: 1,
       model: 'gpt-image-2',
       gptImageQuality: 'auto' as const,
       gptImageStyle: 'auto' as const,
       gptImageBackground: 'auto' as const,
       parallelCount: 1 as const,
+      ...extra,
     };
   }
 
-  it('图生图传多条提示词时，每条各发一个任务（张数由任务数表达）', async () => {
-    const prompts = buildSetPrompts('帮我生成电商套图', 3, { hasReferenceImages: true });
+  it('套图提交只建 1 个任务（不是 N 个），并把网格挂到任务上', async () => {
+    const layout = resolveSetSheetLayout(5);
+    const prompt = buildSetSheetPrompt('帮我生成电商套图', 5, { hasReferenceImages: true });
     const { actions } = createActions(makeJob({ mode: 'image-to-image' }));
 
-    await submitImageToImage(makeSubmitInput(prompts), actions, vi.fn());
+    await submitImageToImage(makeSubmitInput({
+      prompt,
+      sheetGrid: { rows: layout.rows, cols: layout.cols, cells: layout.cells },
+    }), actions, vi.fn());
 
-    expect(actions.addJob).toHaveBeenCalledTimes(3);
-    expect(mockedCreateNovaTask).toHaveBeenCalledTimes(3);
-    const sentPrompts = mockedCreateNovaTask.mock.calls.map(call => (call[0] as { prompt: string }).prompt);
-    expect(sentPrompts).toEqual(prompts);
-    // 每条都必须锚定「第 i 张」，且不许再把「套图」这类词送给绘图模型
-    sentPrompts.forEach((p, idx) => expect(p).toContain(`共 3 张里的第 ${idx + 1} 张`));
-    expect(sentPrompts.join('')).not.toContain('套图，');
+    expect(actions.addJob).toHaveBeenCalledTimes(1);
+    expect(mockedCreateNovaTask).toHaveBeenCalledTimes(1);
+    expect((mockedCreateNovaTask.mock.calls[0][0] as { prompt: string }).prompt).toContain('2 行 3 列');
+    expect(actions.addJob).toHaveBeenCalledWith(expect.objectContaining({
+      sheetGrid: { rows: 2, cols: 3, cells: 5 },
+    }));
   });
 
-  it('图生图不传 prompts 时维持单任务历史行为', async () => {
+  it('不传 sheetGrid 时维持单图历史行为（不带网格字段）', async () => {
     const { actions } = createActions(makeJob({ mode: 'image-to-image' }));
 
     await submitImageToImage(makeSubmitInput(), actions, vi.fn());
 
     expect(actions.addJob).toHaveBeenCalledTimes(1);
-    expect(mockedCreateNovaTask).toHaveBeenCalledTimes(1);
-    expect((mockedCreateNovaTask.mock.calls[0][0] as { prompt: string }).prompt).toBe('帮我生成电商套图');
+    expect((actions.addJob as unknown as { mock: { calls: unknown[][] } }).mock.calls[0][0]).not.toHaveProperty('sheetGrid');
   });
 
-  it('文生图用 buildSetPrompts 的输出时也各成一个任务', async () => {
-    const prompts = buildSetPrompts('帮我生成电商套图', 2);
+  it('文生图套图同样只建 1 个任务', async () => {
+    const layout = resolveSetSheetLayout(6);
     const { actions } = createActions(makeJob());
 
     await submitTextToImage({
-      prompts,
-      outputSize: '1K',
-      aspectRatio: '1:1',
+      prompts: [buildSetSheetPrompt('帮我生成电商套图', 6)],
+      outputSize: '2K',
+      aspectRatio: layout.aspectRatio,
       temperature: 1,
       model: 'gpt-image-2',
       gptImageQuality: 'auto',
       gptImageStyle: 'auto',
       gptImageBackground: 'auto',
       parallelCount: 1,
+      sheetGrid: { rows: layout.rows, cols: layout.cols, cells: layout.cells },
     }, actions, vi.fn());
 
-    expect(actions.addJob).toHaveBeenCalledTimes(2);
-    expect(mockedCreateNovaTask).toHaveBeenCalledTimes(2);
+    expect(actions.addJob).toHaveBeenCalledTimes(1);
+    expect(mockedCreateNovaTask).toHaveBeenCalledTimes(1);
   });
 });

@@ -20,6 +20,11 @@ import { downloadAndStoreImages, type DownloadResult, type ImageDownloadProgress
 
 export interface TextToImageSubmitInput {
   prompts: string[];
+  /**
+   * 套图模式：本次提交的是「一张等分网格拼图」，出图后要按这个网格本地切成 N 张。
+   * 有它时该任务的 parallelCount 必须是 1（拼图只出一次）。
+   */
+  sheetGrid?: { rows: number; cols: number; cells: number };
   outputSize: OutputSize;
   customSize?: string;
   aspectRatio: AspectRatio;
@@ -39,6 +44,8 @@ export interface ImageToImageSubmitInput {
    * 后端每次请求只画一张（请求体里没有 n），一条 prompt 里写「N张」只会被拼成宫格。
    */
   prompts?: string[];
+  /** 套图模式：见 TextToImageSubmitInput.sheetGrid */
+  sheetGrid?: { rows: number; cols: number; cells: number };
   files: { id: string; name: string; dataUrl: string; mimeType: string }[];
   outputSize: OutputSize;
   customSize?: string;
@@ -206,10 +213,17 @@ export async function finalizeCompletedServerTask(
 
     const result: DownloadResult = await downloadAndStoreImages(job.id, images, {
       onProgress: item => applyImageDownloadProgress(actions, job.id, images, item),
+      sliceGrid: job.sheetGrid,
     });
-    const finalImages = images.map((img, index) => (
-      img.startsWith('URL:') && result.blobUrls[index] ? result.blobUrls[index] : img
-    ));
+    // 套图模式：1 张等分拼图会被本地切成 N 张 → 结果图就是切出来的那 N 张
+    const slicedImages = job.sheetGrid
+      ? result.blobUrls.filter(url => url && url.startsWith('blob:'))
+      : [];
+    const finalImages = slicedImages.length > 0
+      ? slicedImages
+      : images.map((img, index) => (
+        img.startsWith('URL:') && result.blobUrls[index] ? result.blobUrls[index] : img
+      ));
     const blobUrls = result.blobUrls.filter(url => url && url.startsWith('blob:'));
     const remainingUrlCount = finalImages.filter(img => img.startsWith('URL:')).length;
     const allCached = remainingUrlCount === 0;
@@ -346,6 +360,7 @@ export async function submitTextToImage(
       input.gptImageBackground,
       input.parallelCount
     );
+    if (input.sheetGrid) job.sheetGrid = input.sheetGrid;
     actions.addJob(job);
 
     try {
@@ -418,6 +433,7 @@ export async function submitImageToImage(
       refImages
     );
 
+    if (input.sheetGrid) job.sheetGrid = input.sheetGrid;
     actions.addJob(job);
 
     try {

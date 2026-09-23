@@ -1,4 +1,5 @@
 import { openImageDb, BLOBS_STORE } from '@/lib/image-db';
+import { sliceBlobToGrid, type SliceGrid } from '@/lib/image-slicer';
 
 const MAX_FALLBACK_STORE_SIZE = 50;
 
@@ -383,6 +384,11 @@ export interface DownloadResult {
 export interface DownloadAndStoreImagesOptions {
   maxRetries?: number;
   onProgress?: ImageDownloadProgressHandler;
+  /**
+   * 套图模式：单张拼图下载后**本地按等分网格切片**，结果按格数铺开（1 张 → N 张）。
+   * 切图失败会退回「保留整张拼图」，不让任务失败。
+   */
+  sliceGrid?: SliceGrid;
 }
 
 function createInitialDownloadItems(imageRefs: string[]): ImageDownloadProgressItem[] {
@@ -409,6 +415,8 @@ export async function downloadAndStoreImages(
   let failCount = 0;
   const blobUrls: string[] = new Array(imageRefs.length).fill('');
   const items = createInitialDownloadItems(imageRefs);
+  /** 套图模式切出来的图（1 张拼图 → N 张），非空时以它作为最终结果 */
+  const slicedUrls: string[] = [];
 
   const tasks = imageRefs.map(async (ref, i) => {
     if (!ref.startsWith('URL:')) return;
@@ -422,6 +430,31 @@ export async function downloadAndStoreImages(
       const blob = await fetchImageAsBlob(url, options.maxRetries ?? 2, progress => {
         emit({ index: i, status: 'downloading', ...progress });
       });
+      const grid = options.sliceGrid;
+      if (grid && imageRefs.length === 1) {
+        const totalBytes = items[i]?.totalBytes || blob.size || undefined;
+        try {
+          const pieces = await sliceBlobToGrid(blob, grid);
+          for (let k = 0; k < pieces.length; k += 1) {
+            await storeImageBlob(jobId, k, pieces[k]);
+            slicedUrls.push(URL.createObjectURL(pieces[k]));
+          }
+          successCount += pieces.length;
+        } catch {
+          // 切图失败（极端比例 / 浏览器限制）→ 保留整张拼图，不让任务失败
+          await storeImageBlob(jobId, i, blob);
+          blobUrls[i] = URL.createObjectURL(blob);
+          successCount += 1;
+        }
+        emit({
+          index: i,
+          status: 'cached',
+          loadedBytes: blob.size,
+          totalBytes,
+          percent: getPercent(blob.size, totalBytes),
+        });
+        return;
+      }
       await storeImageBlob(jobId, i, blob);
       blobUrls[i] = URL.createObjectURL(blob);
       successCount++;
@@ -447,7 +480,7 @@ export async function downloadAndStoreImages(
   });
 
   await Promise.allSettled(tasks);
-  return { successCount, failCount, blobUrls, items };
+  return { successCount, failCount, blobUrls: slicedUrls.length ? slicedUrls : blobUrls, items };
 }
 
 export function revokeBlobUrls(blobUrls: string[]): void {

@@ -44,7 +44,7 @@ import { dispatchImageActionToast } from '@/lib/image-actions';
 import type { AspectRatio, OutputSize, RefImageData } from '@/lib/job-store';
 import type { ImageFormSettings } from '@/lib/form-settings';
 import type { ImageToImageSubmitInput, TextToImageSubmitInput } from '@/lib/workspace-task-service';
-import { buildSetPrompts, describeSetMode } from '@/lib/set-prompts';
+import { buildSetSheetPrompt, describeSetMode, resolveSetSheetLayout, SET_COUNT_VALUES } from '@/lib/set-prompts';
 import { cn } from '@/lib/utils';
 
 const WORKBENCH_SETTINGS_KEY = 'nova-image-generation-settings';
@@ -153,6 +153,18 @@ export function ImageGenerationWorkbench({
   const autoLayoutLocked = outputSize === 'auto';
   const disabledMessage = '请先在设置中配置 Nova API 密钥，配置完成后即可开始生成图片。';
 
+  /**
+   * 套图开关。打开时做两个一次性调整：
+   *   ① 张数至少 2（1 张没有「套图」可言）；
+   *   ② 1K 拼图按网格切完每格只有 ~512px，自动提到 2K（之后你手动改回 1K 不会被覆盖）。
+   */
+  const handleSetModeChange = useCallback((next: boolean) => {
+    setSetMode(next);
+    if (!next) return;
+    setParallelCount(prev => (prev < 2 ? 4 : prev));
+    setOutputSize(prev => (prev === '1K' ? '2K' : prev));
+  }, []);
+
   const handleParamsChange = useCallback((patch: Partial<GenerationParamsValue>) => {
     if (patch.model !== undefined) {
       setModel(patch.model);
@@ -221,6 +233,7 @@ export function ImageGenerationWorkbench({
       setGptImageAdvancedParams(nextAdvancedParams);
       setParallelCount(nextParallelCount);
       setSetMode(saved.setMode === true);
+      if (saved.setMode === true && nextParallelCount < 2) setParallelCount(4);
       if (useInitial) {
         setPrompt(initialData?.prompt || '');
         setPendingFiles((initialData?.refImages || []).map(img => ({
@@ -568,41 +581,45 @@ export function ImageGenerationWorkbench({
     if (!prompt.trim() || disabled || loading) return;
 
     const modelWithBilling = model;
-    // 套图模式：把「一句话」拆成 N 条各画一张的提示词，每条独立成一个任务。
-    // 张数只能由任务数表达（后端每次请求只画一张，请求体里没有 n），
-    // 所以每条任务的 parallelCount 传 1；关掉开关时行为与历史完全一致。
-    const setPrompts = setMode
-      ? buildSetPrompts(prompt.trim(), parallelCount, { hasReferenceImages: pendingFiles.length > 0 })
+    // 套图模式：出 **1 张等分网格拼图**，出图后由本地按网格切成 N 张独立图。
+    // 不拆成 N 条空指令（那样每张都没方向，实测出垃圾）；也不调文本模型。
+    const sheetLayout = setMode ? resolveSetSheetLayout(parallelCount) : null;
+    const sheetPrompt = sheetLayout
+      ? buildSetSheetPrompt(prompt.trim(), parallelCount, { hasReferenceImages: pendingFiles.length > 0 })
       : null;
-    const effectiveParallelCount = setPrompts ? 1 : parallelCount;
+    const effectiveParallelCount = sheetLayout ? 1 : parallelCount;
+    const effectiveAspectRatio = sheetLayout ? sheetLayout.aspectRatio : aspectRatio;
+    const effectiveCustomSize = sheetLayout ? undefined : customSize;
+    const sheetGrid = sheetLayout ? { rows: sheetLayout.rows, cols: sheetLayout.cols, cells: sheetLayout.cells } : undefined;
 
     if (pendingFiles.length > 0) {
       onSubmitImage({
-        prompt: prompt.trim(),
-        ...(setPrompts ? { prompts: setPrompts } : {}),
+        prompt: sheetPrompt ?? prompt.trim(),
         files: pendingFiles,
         outputSize,
-        customSize,
-        aspectRatio,
+        customSize: effectiveCustomSize,
+        aspectRatio: effectiveAspectRatio,
         temperature,
         model: modelWithBilling,
         gptImageQuality: gptImageAdvancedParams.quality,
         gptImageStyle: gptImageAdvancedParams.style,
         gptImageBackground: gptImageAdvancedParams.background,
         parallelCount: effectiveParallelCount,
+        ...(sheetGrid ? { sheetGrid } : {}),
       });
     } else {
       onSubmitText({
-        prompts: setPrompts ?? [prompt.trim()],
+        prompts: [sheetPrompt ?? prompt.trim()],
         outputSize,
-        customSize,
-        aspectRatio,
+        customSize: effectiveCustomSize,
+        aspectRatio: effectiveAspectRatio,
         temperature,
         model: modelWithBilling,
         gptImageQuality: gptImageAdvancedParams.quality,
         gptImageStyle: gptImageAdvancedParams.style,
         gptImageBackground: gptImageAdvancedParams.background,
         parallelCount: effectiveParallelCount,
+        ...(sheetGrid ? { sheetGrid } : {}),
       });
     }
 
@@ -730,7 +747,8 @@ export function ImageGenerationWorkbench({
                 value={{ model, outputSize, customSize, aspectRatio, temperature, parallelCount, gptImageAdvancedParams }}
                 onChange={handleParamsChange}
                 setMode={setMode}
-                onSetModeChange={setSetMode}
+                onSetModeChange={handleSetModeChange}
+                countOptions={setMode ? SET_COUNT_VALUES : undefined}
               />
               {setMode && (
                 <p className="pt-1.5 text-[11px] text-muted-foreground">{describeSetMode(parallelCount)}</p>

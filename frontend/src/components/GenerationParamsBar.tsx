@@ -51,13 +51,15 @@ interface GenerationParamsBarProps {
    */
   setMode?: boolean;
   onSetModeChange?: (next: boolean) => void;
+  /** 张数候选（套图模式下传 2..8，普通模式用默认的 1..8） */
+  countOptions?: readonly number[];
 }
 
 /**
  * 共享的「模型 + 生成参数」控件条（自宿主 TextToImageForm 抽取）。受控：对外只发最终 patch，
  * 模型/分辨率联动级联在内部完成。文生图与无限画布编排节点共用，保证展示一致并支持自定义分辨率。
  */
-export function GenerationParamsBar({ value, onChange, size = 'xs', className, setMode = false, onSetModeChange }: GenerationParamsBarProps) {
+export function GenerationParamsBar({ value, onChange, size = 'xs', className, setMode = false, onSetModeChange, countOptions }: GenerationParamsBarProps) {
   const [modelPopoverOpen, setModelPopoverOpen] = useState(false);
   const [sizePopoverOpen, setSizePopoverOpen] = useState(false);
   const [aspectPopoverOpen, setAspectPopoverOpen] = useState(false);
@@ -220,7 +222,7 @@ export function GenerationParamsBar({ value, onChange, size = 'xs', className, s
           <span className="text-[11px]">x{value.parallelCount}</span>
         </PopoverTrigger>
         <PopoverContent className="w-36 p-1" align="start">
-          {PARALLEL_COUNT_VALUES.map((count) => (
+          {(countOptions ?? PARALLEL_COUNT_VALUES).map((count) => (
             <button
               key={count}
               onClick={() => handleParallelCountChange(count as ParallelCount)}
@@ -241,8 +243,8 @@ export function GenerationParamsBar({ value, onChange, size = 'xs', className, s
           aria-pressed={setMode}
           className="gap-1"
           title={setMode
-            ? `套图模式已开：按「生成数量」出 ${value.parallelCount} 张独立成图，逐张只画一个完整画面（不拼接）`
-            : '套图模式（关）：打开后按「生成数量」拆成多张独立出图，不再拼成一张'}
+            ? `套图模式已开：出 1 张等分拼图后自动切成 ${value.parallelCount} 张（不拼接、不调文本模型）`
+            : '套图模式（关）：打开后出「一张等分拼图」并自动切成 N 张独立图；关掉时行为与历史一致'}
           onClick={() => onSetModeChange(!setMode)}
         >
           <LayoutGrid className="h-3 w-3" />
