@@ -65,6 +65,8 @@ export interface MemorySinkResult {
   queued: number;
   /** 被写入判据挡掉、没有进队列的条数（模型写了但不合格） */
   filtered?: number;
+  /** 整轮跳过时给出的原因（没实质进展 / 模型自己说 skip）——用于心跳日志与排查 */
+  skipped?: string;
   error?: string;
 }
 
@@ -123,6 +125,8 @@ export function normalizeDraftTags(rawText: string): string {
 const DRAFT_BANNED = [
   /待补充/, /\(待/, /（待/, /未完成/, /TODO/i, /^\.\.\./, /嘛$/, /略$/,
 ];
+/** 会话状态里不许出现的「什么都没发生」措辞（曾被硬凑进待确认队列的那类句子） */
+const SESSION_JUNK_RE = /仅打招呼|只打招呼|尚未开始|还没开始|没有实质|无实质|没有进展|无进展|自动兜底|无事发生|未开始/;
 /** 英文占比过高（且不是基调句）→ 视为「抄原文」，丢掉 */
 function looksLikeRawEnglish(text: string): boolean {
   const letters = (text.match(/[A-Za-z]/g) || []).length;
@@ -142,6 +146,8 @@ export function isUsableDraft(kind: 'feedback' | 'library' | 'proposal' | 'sessi
   }
   const text = String(rawText || '').replace(/\s+/g, ' ').trim();
   if (text.length < 8) return false;
+  // 会话状态：不许写「什么都没发生」的空状态（「尚未开始，用户仅打招呼」这类曾被硬凑进待确认队列）
+  if (kind === 'session' && SESSION_JUNK_RE.test(text)) return false;
   if (kind !== 'proposal' && kind !== 'session' && text.length > 160) return false;  // 「一句话」不该这么长
   if (text.length > 600) return false;
   if (DRAFT_BANNED.some(re => re.test(text))) return false;
@@ -175,29 +181,110 @@ export function dedupeDrafts(items: string[], existing: string[] = []): string[]
   return out;
 }
 
+/**
+ * 「值不值得沉淀」的前置门（纯本地关键词判据，不调模型）。
+ *
+ * 教训：早先只要「空闲满 3 分钟」就调模型起草，于是「用户只打了个招呼」也被硬凑成
+ * 一条会话状态（「尚未开始，用户仅打招呼…」）塞进待确认队列 —— 又费一次调用，又费你一次点击。
+ * 判据：这轮里必须出现**实质信号**（碰过图 / 出过图 / 改过要求 / 定过事 / 提过规则），
+ * 否则整轮跳过，一个字都不产出。
+ */
+const SUBSTANCE_SIGNALS: Array<{ name: string; re: RegExp }> = [
+  { name: '参考图/素材', re: /参考图|上传|图片|素材|图库|抓图|主图|详情图|img_\d/ },
+  { name: '出图/任务', re: /生成|出图|画一|重出|重做|排队|任务|失败|报错|超时|重试|提案/ },
+  { name: '纠正', re: /不对|不要|别用|错了|改成|改一下|修改|应该是|必须|禁止|重新|去掉|换成|调整/ },
+  { name: '决策', re: /可以|就行|就用|确认|采纳|定了|保留|删掉|通过|选这个|这个好/ },
+  { name: '参数', re: /比例|尺寸|张数|\d\s*[:：]\s*\d|1K|2K|4K|像素|温度|清晰度/ },
+  { name: '商品', re: /SKU|商品|单品|套装|款式|类目|卖点/ },
+  { name: '规则/偏好', re: /记住|以后|每次|统一|固定|规范|都要|永远|不许/ },
+  { name: '视频/动图', re: /视频|动图|GIF/ },
+];
+/** 助手侧能证明「干过活」的痕迹（任务落地/提案/出图），避免「用户只回了一个『好的』」被误判为无进展 */
+const ASSISTANT_SUBSTANCE = /方案已提交|待确认|已出图|出图完成|生成完成|任务失败|排队中|提案/;
+/** 纯寒暄：命中即视为没有信息量（要求整句就是寒暄） */
+const CHITCHAT_RE = /^\s*(你好|您好|哈喽|哈啰|在吗|在么|早上好|中午好|下午好|晚上好|早安|晚安|谢谢|多谢|感谢|辛苦|哈哈+|嘿嘿|收到|好的|好嘞|嗯+|ok|hi|hello|测试|test)[\s!！。.~～?？、,，]*$/i;
+
+export interface DepositSubstance {
+  /** true = 这轮有实质进展，值得交给模型起草记忆 */
+  substantive: boolean;
+  /** 跳过的原因（写进心跳日志，方便你看到「为什么这轮没沉淀」） */
+  reason: string;
+  /** 命中的信号名，便于排查判据是不是过松/过严 */
+  hits: string[];
+}
+
+/** 判断一段对话记录里有没有「值得记」的实质进展（按行拆「用户：/助手：」） */
+export function assessDepositSubstance(transcript: string): DepositSubstance {
+  const lines = String(transcript || '').split('\n').map(line => line.trim()).filter(Boolean);
+  const hits: string[] = [];
+  let chitchatOnly = lines.length > 0;
+
+  for (const line of lines) {
+    const isUser = line.startsWith('用户：');
+    const isAssistant = line.startsWith('助手：');
+    const body = line.replace(/^(用户|助手)：/, '').trim();
+    if (!body) continue;
+    if (isAssistant) {
+      if (ASSISTANT_SUBSTANCE.test(body)) hits.push('任务落地痕迹');
+      continue;
+    }
+    if (!isUser) continue;
+    if (CHITCHAT_RE.test(body)) continue;   // 纯寒暄不算进展
+    chitchatOnly = false;
+    for (const signal of SUBSTANCE_SIGNALS) {
+      if (signal.re.test(body)) hits.push(signal.name);
+    }
+  }
+
+  const uniqueHits = [...new Set(hits)];
+  if (uniqueHits.length > 0) return { substantive: true, reason: '', hits: uniqueHits };
+  return {
+    substantive: false,
+    reason: chitchatOnly ? '本轮只有寒暄/闲聊，无实质进展' : '本轮没有实质信号（未碰图、未出图、未改要求、未定事）',
+    hits: [],
+  };
+}
+
 const SINK_INSTRUCTION = `你是商品图工作流的记忆沉淀器。下面是刚结束（或已空闲）的一段创作对话记录。
 只输出一个 JSON，不要任何解释、前后缀、代码块标记：
-{"feedback":["..."],"library":["..."],"proposals":["..."],"session":"...","recent":"..."}
+{"feedback":["..."],"library":["..."],"proposals":["..."],"session":"...","recent":"...","skip":""}
+
+**先过总门（值不值得记）**：如果这段对话里没有任何实质进展 —— 只是打招呼、寒暄、闲聊、提问，
+或者从头到尾没上传参考图、没出过一次图、也没改过任何要求 —— 就把 skip 写成一句话说明原因
+（例：skip = "仅打招呼，无实质进展"），其余字段全部给空值或空数组。
+**绝不要为了凑字段而编一条「什么都没发生」的记录。**
 
 字段含义：
 - feedback：用户明确纠正过的点，或出图出过的硬伤。
 - library：本次通过的方案要点，或新试出来的、可复用的取值。
 - proposals：只有当出现「该改类目规则」的信号时才写（同一条纠错反复出现、某套色板/图型被验证稳定该升级进基础规则、违禁词或写法需要调整）。你只能提议，不能改规则本身。
-- session：**必填，不能为空**（这一单做到哪一步）。
+- session：**可选**（这一单做到哪一步）。格式「商品：已出 图型；还差 下一步」，已完成写「已完成：商品」。
+  **只有确实存在「进行中的单」（有商品、有参考图、或有出图任务）时才写**；只是打招呼/闲聊/提问/
+  尚未开始 → 必须写空字符串 ""，绝不写「尚未开始」「用户仅打招呼」这类没有信息量的句子。
 - recent：**近期记录**，只在这一单确实定了套图方向时写，格式固定一行：「主张=… | 骨架机位=… | 色族=…」（各 ≤20 字，不写提示词正文、不写画面细节）；没定方向就写空字符串。它只是「记性」，用来让下一次不撞车。
 
 ${WRITE_RULES}
 
 ${TAG_RULES}`;
 
-/** session 为空时的兜底：用最后一条用户消息生成一句，避免会话状态永远不推进 */
-function buildSessionFallback(lastUserMessage: string): string {
-  const text = String(lastUserMessage || '').replace(/\s+/g, ' ').trim();
-  if (!text) return '';
-  return `本轮进展（自动兜底）：${text.slice(0, 80)}`;
+/**
+ * 会话状态兜底：只在模型没给 session 时用，且**必须取自一条有实质信号的用户消息**——
+ * 早先是拿「最后一条用户消息」硬造（于是出现「本轮进展（自动兜底）：你好」这种垃圾条目）。
+ */
+function buildSessionFallback(transcript: string): string {
+  const userLines = String(transcript || '')
+    .split('\n')
+    .filter(line => line.trim().startsWith('用户：'))
+    .map(line => line.replace(/^\s*用户：/, '').replace(/\s+/g, ' ').trim())
+    .filter(line => line.length > 6 && !CHITCHAT_RE.test(line));
+  for (let i = userLines.length - 1; i >= 0; i -= 1) {
+    const line = userLines[i];
+    if (SUBSTANCE_SIGNALS.some(signal => signal.re.test(line))) return `本轮进展：${line.slice(0, 80)}`;
+  }
+  return '';
 }
 
-function parseSinkJson(text: string): { feedback: string[]; library: string[]; proposals: string[]; session: string; recent: string } | null {
+function parseSinkJson(text: string): { feedback: string[]; library: string[]; proposals: string[]; session: string; recent: string; skip: string } | null {
   const cleaned = String(text || '')
     .replace(/^\s*```(?:json)?/i, '')
     .replace(/```\s*$/, '')
@@ -207,7 +294,7 @@ function parseSinkJson(text: string): { feedback: string[]; library: string[]; p
   if (start < 0 || end <= start) return null;
   try {
     const parsed = JSON.parse(cleaned.slice(start, end + 1)) as {
-      feedback?: unknown; library?: unknown; proposals?: unknown; session?: unknown; recent?: unknown;
+      feedback?: unknown; library?: unknown; proposals?: unknown; session?: unknown; recent?: unknown; skip?: unknown;
     };
     const toStringArray = (value: unknown): string[] =>
       Array.isArray(value) ? value.map(item => String(item || '').trim()).filter(Boolean).slice(0, 5) : [];
@@ -217,17 +304,29 @@ function parseSinkJson(text: string): { feedback: string[]; library: string[]; p
       proposals: toStringArray(parsed.proposals),
       session: typeof parsed.session === 'string' ? parsed.session.trim() : '',
       recent: typeof parsed.recent === 'string' ? parsed.recent.trim() : '',
+      skip: typeof parsed.skip === 'string' ? parsed.skip.trim() : '',
     };
   } catch {
     return null;
   }
 }
 
+/** session 为空时的兜底见 buildSessionFallback：必须取自「有实质信号」的用户消息，寒暄一律不给。 */
+
 export async function sinkAgentMemory(input: MemorySinkInput): Promise<MemorySinkResult> {
   const transcript = String(input.transcript || '').trim();
   const fail = (error: string): MemorySinkResult =>
     ({ ok: false, feedback: 0, library: 0, proposals: 0, recent: 0, sessionWritten: false, queued: 0, error });
   if (!transcript) return fail('没有可沉淀的内容');
+
+  // 前置门：没有实质进展就整轮跳过（不调模型、不产生任何待确认条目）
+  const substance = assessDepositSubstance(transcript);
+  if (!substance.substantive) {
+    return {
+      ok: true, feedback: 0, library: 0, proposals: 0, recent: 0,
+      sessionWritten: false, queued: 0, skipped: substance.reason,
+    };
+  }
 
   const rejected = (input.rejectedTexts || []).map(item => String(item || '').trim()).filter(Boolean).slice(-10);
   const rejectedBlock = rejected.length
@@ -262,6 +361,13 @@ export async function sinkAgentMemory(input: MemorySinkInput): Promise<MemorySin
     const parsed = parseSinkJson(text);
     if (!parsed) {
       return fail('模型未返回可解析的 JSON');
+    }
+    // 模型自己说「这段没什么可记」→ 整轮不产出（与本地前置门同一目的，双保险）
+    if (parsed.skip) {
+      return {
+        ok: true, feedback: 0, library: 0, proposals: 0, recent: 0,
+        sessionWritten: false, queued: 0, skipped: parsed.skip,
+      };
     }
 
     // 心跳只生成「草稿」放待确认队列：你不确认，一个字都不落盘
@@ -319,7 +425,7 @@ export async function sinkAgentMemory(input: MemorySinkInput): Promise<MemorySin
     }
 
     // 会话状态：默认也要你确认（进队列）；开了「自动写入」才直接落盘
-    const rawSession = parsed.session || buildSessionFallback(input.lastUserMessage || '');
+    const rawSession = parsed.session || buildSessionFallback(transcript);
     const sessionText = rawSession && isUsableDraft('session', rawSession) ? rawSession : '';
     let sessionWritten = false;
     if (sessionText) {

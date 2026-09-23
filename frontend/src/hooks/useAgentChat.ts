@@ -589,17 +589,21 @@ export function useAgentChat(sessionId = 'default') {
         });
       })().then(result => {
         pushSinkLog({
-          result: result.ok ? 'ok' : 'failed',
+          result: result.ok ? (result.skipped ? 'skipped' : 'ok') : 'failed',
           feedback: result.feedback,
           library: result.library,
           proposals: result.proposals,
           sessionWritten: result.sessionWritten,
           queued: result.queued,
+          skipped: result.skipped,
           error: result.error,
         });
         if (result.ok) {
+          // 跳过也算「这轮看过了」：否则同一个「只有寒暄」的记录每 30 秒被重扫一次，白刷日志
           memoryUndepositedRef.current = 0;
-          void listPendingDrafts().then(next => setPendingDrafts(next.items));   // 刷新待确认角标
+          if (!result.skipped) {
+            void listPendingDrafts().then(next => setPendingDrafts(next.items));   // 刷新待确认角标
+          }
         }
       }).catch(error => {
         pushSinkLog({ result: 'threw', error: error instanceof Error ? error.message : String(error) });

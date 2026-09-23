@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dedupeDrafts, isUsableDraft, normalizeDraftTags } from '@/lib/nova-memory-sink';
+import { assessDepositSubstance, dedupeDrafts, isUsableDraft, normalizeDraftTags } from '@/lib/nova-memory-sink';
 
 // 回归：这些是真实从「空闲心跳」漏进待确认队列的脏数据（用户 2026-09-22 截图）。
 // 写入判据改严后，机械可判的必须被挡在队列外；语义类（提示词正文）靠起草提示词里的判据 + 自检挡。
@@ -98,5 +98,47 @@ describe('草稿去重（dedupeDrafts）', () => {
   it('不同内容照常保留', () => {
     const out = dedupeDrafts([GOOD_FEEDBACK, GOOD_LIBRARY]);
     expect(out).toHaveLength(2);
+  });
+});
+
+// 回归：用户 2026-09-23 截图 —— 「只打了个招呼」也被硬凑成一条会话状态进待确认队列。
+describe('会话状态不许写「什么都没发生」', () => {
+  it('挡掉用户截图里那条真实垃圾', () => {
+    expect(isUsableDraft('session', '捏捏乐套图：尚未开始，用户仅打招呼；还差上传商品参考图 + 确定张数与比例')).toBe(false);
+  });
+
+  it('挡掉「自动兜底」那类句子（旧兜底逻辑的产物）', () => {
+    expect(isUsableDraft('session', '本轮进展（自动兜底）：你好')).toBe(false);
+    expect(isUsableDraft('session', '本轮没有实质进展')).toBe(false);
+  });
+
+  it('正常的会话状态照常放行', () => {
+    expect(isUsableDraft('session', '已完成：圣诞黄油套装，四图全部通过')).toBe(true);
+    expect(isUsableDraft('session', '榴莲捏捏：已出主图与使用图；还差卖点图标')).toBe(true);
+  });
+});
+
+describe('沉淀前置门（assessDepositSubstance）', () => {
+  it('只有寒暄的对话 → 不值得沉淀', () => {
+    const verdict = assessDepositSubstance('用户：你好\n\n助手：你好！我是捏捏乐套图的提示词助手，上传商品图就能开始。');
+    expect(verdict.substantive).toBe(false);
+    expect(verdict.reason).toContain('寒暄');
+  });
+
+  it('纯提问、没碰图也没出图 → 不值得沉淀', () => {
+    const verdict = assessDepositSubstance('用户：这个要怎么弄呢\n\n助手：你先上传商品图，我看看。');
+    expect(verdict.substantive).toBe(false);
+  });
+
+  it('出图/改要求/定事/提规则 → 值得沉淀（并给出命中的信号）', () => {
+    expect(assessDepositSubstance('用户：这个产品生成电商套图，5张\n\n助手：方案已提交，就等你确认啦').substantive).toBe(true);
+    expect(assessDepositSubstance('用户：背景太白了，改成深绿\n\n助手：好的，已改').substantive).toBe(true);
+    expect(assessDepositSubstance('用户：以后主图底部都要留白 8%\n\n助手：记下了').substantive).toBe(true);
+    expect(assessDepositSubstance('用户：就用第二版\n\n助手：收到').hits.length).toBeGreaterThan(0);
+  });
+
+  it('用户只回「好的」，但助手侧有任务落地痕迹 → 仍算有进展', () => {
+    const verdict = assessDepositSubstance('用户：好的\n\n助手：4 张图已出图完成，可在任务列表查看');
+    expect(verdict.substantive).toBe(true);
   });
 });
