@@ -81,7 +81,7 @@ print(json.dumps({'tag_name': sys.argv[1], 'name': 'Nova Studio ' + sys.argv[2],
 " "$TAG" "$VERSION" "$NOTES")" \
     | python -c "import sys,json;d=json.load(sys.stdin);print(d.get('id','') or d.get('message',''))")"
 else
-  echo "  复用已有 release（id=$RELEASE_ID）"
+  echo "  复用已有 release（id=${RELEASE_ID}）"
 fi
 
 if ! [[ "$RELEASE_ID" =~ ^[0-9]+$ ]]; then
@@ -121,14 +121,14 @@ upload() {
       echo "  上传 $name → 已存在，跳过（GitHub 不允许同名资产；要覆盖先在 Release 里删掉旧的）"
       ;;
     *)
-      echo "  上传 $name → HTTP $code：$(head -c 200 "$native_resp" 2>/dev/null)"
+      echo "  上传 ${name} → HTTP ${code}：$(head -c 200 "$native_resp" 2>/dev/null)"
       ;;
   esac
 }
 
 for CH in "${CHANNELS[@]}"; do
   if [ "$CH" = "hk" ]; then PREFIX="Nova-Studio-HK"; else PREFIX="Nova-Studio-L"; fi
-  echo "== 通道 $CH（$PREFIX）=="
+  echo "== 通道 ${CH}（${PREFIX}）=="
   # 注意：electron-builder 的更新清单名就是「通道名.yml」（不是 latest-<通道>.yml），
   # 客户端按 app-update.yml 里的 channel 去找同名文件，名字错一位就永远收不到更新。
   upload "$ROOT/release/$PREFIX-$VERSION-win-x64.exe"

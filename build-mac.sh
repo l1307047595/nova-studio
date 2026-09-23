@@ -23,7 +23,7 @@ case "$VARIANT" in
   *)  echo "用法: bash build-mac.sh [l|hk]"; exit 2 ;;
 esac
 
-echo "== 打 $PRODUCT（通道 $CHANNEL，种子 $SEED）=="
+echo "== 打 ${PRODUCT}（通道 ${CHANNEL}，种子 ${SEED}）=="
 
 command -v node >/dev/null 2>&1 || {
   echo "❌ 没装 Node.js。先装：https://nodejs.org （选 LTS，20 以上）"
