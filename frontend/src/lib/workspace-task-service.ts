@@ -33,6 +33,12 @@ export interface TextToImageSubmitInput {
 
 export interface ImageToImageSubmitInput {
   prompt: string;
+  /**
+   * 套图模式：一次提交多条「各画一张」的提示词，每条独立成一个任务。
+   * 不传时按 prompt 单条处理（与历史行为一致）。张数只能由任务数表达 ——
+   * 后端每次请求只画一张（请求体里没有 n），一条 prompt 里写「N张」只会被拼成宫格。
+   */
+  prompts?: string[];
   files: { id: string; name: string; dataUrl: string; mimeType: string }[];
   outputSize: OutputSize;
   customSize?: string;
@@ -392,49 +398,54 @@ export async function submitImageToImage(
     mimeType: file.mimeType,
   }));
   const imageReferences = buildImageReferences(input.files);
-  const layout = resolveSubmitLayout(input.model as ModelId, input.outputSize, input.aspectRatio, input.prompt);
-  const job = createBaseJob(
-    'image-to-image',
-    input.prompt,
-    layout.outputSize,
-    input.customSize,
-    layout.aspectRatio,
-    input.temperature,
-    input.model,
-    input.gptImageQuality,
-    input.gptImageStyle,
-    input.gptImageBackground,
-    input.parallelCount,
-    refImages
-  );
+  // 套图模式传多条提示词时，每条各成一个任务；不传则维持单条历史行为。
+  const prompts = input.prompts?.length ? input.prompts : [input.prompt];
 
-  actions.addJob(job);
+  for (const prompt of prompts) {
+    const layout = resolveSubmitLayout(input.model as ModelId, input.outputSize, input.aspectRatio, prompt);
+    const job = createBaseJob(
+      'image-to-image',
+      prompt,
+      layout.outputSize,
+      input.customSize,
+      layout.aspectRatio,
+      input.temperature,
+      input.model,
+      input.gptImageQuality,
+      input.gptImageStyle,
+      input.gptImageBackground,
+      input.parallelCount,
+      refImages
+    );
 
-  try {
-    const serverTaskId = await createNovaTask({
-      apiKey,
-      baseUrl: provider.baseUrl,
-      protocol: provider.protocol,
-      mode: 'image-to-image',
-      prompt: input.prompt,
-      outputSize: layout.outputSize,
-      customSize: input.customSize,
-      aspectRatio: layout.aspectRatio,
-      temperature: input.temperature,
-      model: provider.modelId,
-      gptImageQuality: input.gptImageQuality,
-      gptImageStyle: input.gptImageStyle,
-      gptImageBackground: input.gptImageBackground,
-      parallelCount: input.parallelCount,
-      images: imageReferences,
-    });
+    actions.addJob(job);
 
-    actions.replaceJob(job.id, current => ({
-      ...current,
-      status: '排队中',
-      serverTaskId,
-    }));
-  } catch (error) {
-    await actions.failJob(job.id, error instanceof Error ? error.message : String(error));
+    try {
+      const serverTaskId = await createNovaTask({
+        apiKey,
+        baseUrl: provider.baseUrl,
+        protocol: provider.protocol,
+        mode: 'image-to-image',
+        prompt,
+        outputSize: layout.outputSize,
+        customSize: input.customSize,
+        aspectRatio: layout.aspectRatio,
+        temperature: input.temperature,
+        model: provider.modelId,
+        gptImageQuality: input.gptImageQuality,
+        gptImageStyle: input.gptImageStyle,
+        gptImageBackground: input.gptImageBackground,
+        parallelCount: input.parallelCount,
+        images: imageReferences,
+      });
+
+      actions.replaceJob(job.id, current => ({
+        ...current,
+        status: '排队中',
+        serverTaskId,
+      }));
+    } catch (error) {
+      await actions.failJob(job.id, error instanceof Error ? error.message : String(error));
+    }
   }
 }

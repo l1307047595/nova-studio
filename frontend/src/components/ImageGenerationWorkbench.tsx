@@ -44,6 +44,7 @@ import { dispatchImageActionToast } from '@/lib/image-actions';
 import type { AspectRatio, OutputSize, RefImageData } from '@/lib/job-store';
 import type { ImageFormSettings } from '@/lib/form-settings';
 import type { ImageToImageSubmitInput, TextToImageSubmitInput } from '@/lib/workspace-task-service';
+import { buildSetPrompts, describeSetMode } from '@/lib/set-prompts';
 import { cn } from '@/lib/utils';
 
 const WORKBENCH_SETTINGS_KEY = 'nova-image-generation-settings';
@@ -125,6 +126,8 @@ export function ImageGenerationWorkbench({
   const [temperature, setTemperature] = useState<number>(1);
   const [gptImageAdvancedParams, setGptImageAdvancedParams] = useState<GptImageAdvancedParams>(DEFAULT_GPT_IMAGE_ADVANCED_PARAMS);
   const [parallelCount, setParallelCount] = useState<ParallelCount>(1);
+  /** 套图模式：一句话 → N 张独立成图（每张只画一个完整画面，不拼接）。 */
+  const [setMode, setSetMode] = useState(false);
   const [settingsReady, setSettingsReady] = useState(false);
 
   const [isDragOver, setIsDragOver] = useState(false);
@@ -217,6 +220,7 @@ export function ImageGenerationWorkbench({
       setTemperature(nextTemperature);
       setGptImageAdvancedParams(nextAdvancedParams);
       setParallelCount(nextParallelCount);
+      setSetMode(saved.setMode === true);
       if (useInitial) {
         setPrompt(initialData?.prompt || '');
         setPendingFiles((initialData?.refImages || []).map(img => ({
@@ -249,8 +253,9 @@ export function ImageGenerationWorkbench({
       gptImageStyle: gptImageAdvancedParams.style,
       gptImageBackground: gptImageAdvancedParams.background,
       parallelCount,
+      setMode,
     });
-  }, [model, outputSize, customSize, aspectRatio, temperature, gptImageAdvancedParams, parallelCount, settingsReady]);
+  }, [model, outputSize, customSize, aspectRatio, temperature, gptImageAdvancedParams, parallelCount, setMode, settingsReady]);
 
   const handleOptimize = useCallback(() => {
     const textModel = requireDefaultConfiguredTextModel('promptOptimize');
@@ -563,9 +568,18 @@ export function ImageGenerationWorkbench({
     if (!prompt.trim() || disabled || loading) return;
 
     const modelWithBilling = model;
+    // 套图模式：把「一句话」拆成 N 条各画一张的提示词，每条独立成一个任务。
+    // 张数只能由任务数表达（后端每次请求只画一张，请求体里没有 n），
+    // 所以每条任务的 parallelCount 传 1；关掉开关时行为与历史完全一致。
+    const setPrompts = setMode
+      ? buildSetPrompts(prompt.trim(), parallelCount, { hasReferenceImages: pendingFiles.length > 0 })
+      : null;
+    const effectiveParallelCount = setPrompts ? 1 : parallelCount;
+
     if (pendingFiles.length > 0) {
       onSubmitImage({
         prompt: prompt.trim(),
+        ...(setPrompts ? { prompts: setPrompts } : {}),
         files: pendingFiles,
         outputSize,
         customSize,
@@ -575,11 +589,11 @@ export function ImageGenerationWorkbench({
         gptImageQuality: gptImageAdvancedParams.quality,
         gptImageStyle: gptImageAdvancedParams.style,
         gptImageBackground: gptImageAdvancedParams.background,
-        parallelCount,
+        parallelCount: effectiveParallelCount,
       });
     } else {
       onSubmitText({
-        prompts: [prompt.trim()],
+        prompts: setPrompts ?? [prompt.trim()],
         outputSize,
         customSize,
         aspectRatio,
@@ -588,7 +602,7 @@ export function ImageGenerationWorkbench({
         gptImageQuality: gptImageAdvancedParams.quality,
         gptImageStyle: gptImageAdvancedParams.style,
         gptImageBackground: gptImageAdvancedParams.background,
-        parallelCount,
+        parallelCount: effectiveParallelCount,
       });
     }
 
@@ -715,7 +729,12 @@ export function ImageGenerationWorkbench({
               <GenerationParamsBar
                 value={{ model, outputSize, customSize, aspectRatio, temperature, parallelCount, gptImageAdvancedParams }}
                 onChange={handleParamsChange}
+                setMode={setMode}
+                onSetModeChange={setSetMode}
               />
+              {setMode && (
+                <p className="pt-1.5 text-[11px] text-muted-foreground">{describeSetMode(parallelCount)}</p>
+              )}
             </div>
 
             <div className="ml-auto flex w-full justify-end gap-2 px-3 pb-2 sm:w-auto sm:px-4">

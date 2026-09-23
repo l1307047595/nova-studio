@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Check, Copy, Maximize, RectangleHorizontal, Sparkles, Thermometer } from 'lucide-react';
+import { Check, Copy, LayoutGrid, Maximize, RectangleHorizontal, Sparkles, Thermometer } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -44,13 +44,20 @@ interface GenerationParamsBarProps {
   onChange: (patch: Partial<GenerationParamsValue>) => void;
   size?: ButtonSize;
   className?: string;
+  /**
+   * 套图模式开关（可选，只有工作台传）。打开时「生成数量」= 出几张独立图：
+   * 提交前由工作台把一句话拆成 N 条「各画一张」的提示词 —— 绘图模型看不到
+   * 「套图 / N张 / 连续生成」这类措辞，也就不会把多个画面拼进同一张画布。
+   */
+  setMode?: boolean;
+  onSetModeChange?: (next: boolean) => void;
 }
 
 /**
  * 共享的「模型 + 生成参数」控件条（自宿主 TextToImageForm 抽取）。受控：对外只发最终 patch，
  * 模型/分辨率联动级联在内部完成。文生图与无限画布编排节点共用，保证展示一致并支持自定义分辨率。
  */
-export function GenerationParamsBar({ value, onChange, size = 'xs', className }: GenerationParamsBarProps) {
+export function GenerationParamsBar({ value, onChange, size = 'xs', className, setMode = false, onSetModeChange }: GenerationParamsBarProps) {
   const [modelPopoverOpen, setModelPopoverOpen] = useState(false);
   const [sizePopoverOpen, setSizePopoverOpen] = useState(false);
   const [aspectPopoverOpen, setAspectPopoverOpen] = useState(false);
@@ -208,7 +215,7 @@ export function GenerationParamsBar({ value, onChange, size = 'xs', className }:
       </Popover>
 
       <Popover open={parallelPopoverOpen} onOpenChange={setParallelPopoverOpen}>
-        <PopoverTrigger className={cn(buttonVariants({ variant: 'outline', size }), 'gap-1')} title="并行数量">
+        <PopoverTrigger className={cn(buttonVariants({ variant: 'outline', size }), 'gap-1')} title={setMode ? '套图张数（每张独立出图）' : '并行数量'}>
           <Copy className="h-3 w-3" />
           <span className="text-[11px]">x{value.parallelCount}</span>
         </PopoverTrigger>
@@ -219,12 +226,29 @@ export function GenerationParamsBar({ value, onChange, size = 'xs', className }:
               onClick={() => handleParallelCountChange(count as ParallelCount)}
               className={cn('flex w-full items-center justify-between rounded-md px-2.5 py-1.5 text-sm hover:bg-muted', value.parallelCount === count && 'bg-muted font-medium')}
             >
-              生成 {count} 张
+              {setMode ? `套图 ${count} 张` : `生成 ${count} 张`}
               {value.parallelCount === count && <Check className="h-3.5 w-3.5" />}
             </button>
           ))}
         </PopoverContent>
       </Popover>
+
+      {onSetModeChange && (
+        <Button
+          type="button"
+          variant={setMode ? 'default' : 'outline'}
+          size={size}
+          aria-pressed={setMode}
+          className="gap-1"
+          title={setMode
+            ? `套图模式已开：按「生成数量」出 ${value.parallelCount} 张独立成图，逐张只画一个完整画面（不拼接）`
+            : '套图模式（关）：打开后按「生成数量」拆成多张独立出图，不再拼成一张'}
+          onClick={() => onSetModeChange(!setMode)}
+        >
+          <LayoutGrid className="h-3 w-3" />
+          <span className="text-[11px]">套图</span>
+        </Button>
+      )}
 
       {supportsAdvancedParams && (
         <GptImageAdvancedParamsControl value={value.gptImageAdvancedParams} onChange={(next) => onChange({ gptImageAdvancedParams: next })} variant="outline" size={size} />

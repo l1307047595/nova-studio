@@ -6,9 +6,11 @@ import type { StoredJob } from '@/lib/job-store';
 import { saveRegistry } from '@/lib/nova-models';
 import {
   finalizeCompletedServerTask,
+  submitImageToImage,
   submitTextToImage,
   type SubmitActions,
 } from '@/lib/workspace-task-service';
+import { buildSetPrompts } from '@/lib/set-prompts';
 vi.mock('@/lib/ccode-task-client', async importOriginal => {
   const actual = await importOriginal<typeof import('@/lib/ccode-task-client')>();
   return {
@@ -270,5 +272,70 @@ describe('finalizeCompletedServerTask', () => {
     expect(getJob().warning).toContain('1 张图片本地缓存失败');
     expect(getJob().imageDownloadProgress?.failed).toBe(1);
     expect(mockedAckNovaTask).not.toHaveBeenCalled();
+  });
+});
+
+describe('套图模式：一条提示词拆成 N 个独立任务', () => {
+  const refFiles = [{ id: 'f1', name: 'ref.png', dataUrl: 'data:image/png;base64,AAA', mimeType: 'image/png' }];
+
+  function makeSubmitInput(prompts?: string[]) {
+    return {
+      prompt: '帮我生成电商套图',
+      ...(prompts ? { prompts } : {}),
+      files: refFiles,
+      outputSize: '1K' as const,
+      aspectRatio: '1:1' as const,
+      temperature: 1,
+      model: 'gpt-image-2',
+      gptImageQuality: 'auto' as const,
+      gptImageStyle: 'auto' as const,
+      gptImageBackground: 'auto' as const,
+      parallelCount: 1 as const,
+    };
+  }
+
+  it('图生图传多条提示词时，每条各发一个任务（张数由任务数表达）', async () => {
+    const prompts = buildSetPrompts('帮我生成电商套图', 3, { hasReferenceImages: true });
+    const { actions } = createActions(makeJob({ mode: 'image-to-image' }));
+
+    await submitImageToImage(makeSubmitInput(prompts), actions, vi.fn());
+
+    expect(actions.addJob).toHaveBeenCalledTimes(3);
+    expect(mockedCreateNovaTask).toHaveBeenCalledTimes(3);
+    const sentPrompts = mockedCreateNovaTask.mock.calls.map(call => (call[0] as { prompt: string }).prompt);
+    expect(sentPrompts).toEqual(prompts);
+    // 每条都必须锚定「第 i 张」，且不许再把「套图」这类词送给绘图模型
+    sentPrompts.forEach((p, idx) => expect(p).toContain(`共 3 张里的第 ${idx + 1} 张`));
+    expect(sentPrompts.join('')).not.toContain('套图，');
+  });
+
+  it('图生图不传 prompts 时维持单任务历史行为', async () => {
+    const { actions } = createActions(makeJob({ mode: 'image-to-image' }));
+
+    await submitImageToImage(makeSubmitInput(), actions, vi.fn());
+
+    expect(actions.addJob).toHaveBeenCalledTimes(1);
+    expect(mockedCreateNovaTask).toHaveBeenCalledTimes(1);
+    expect((mockedCreateNovaTask.mock.calls[0][0] as { prompt: string }).prompt).toBe('帮我生成电商套图');
+  });
+
+  it('文生图用 buildSetPrompts 的输出时也各成一个任务', async () => {
+    const prompts = buildSetPrompts('帮我生成电商套图', 2);
+    const { actions } = createActions(makeJob());
+
+    await submitTextToImage({
+      prompts,
+      outputSize: '1K',
+      aspectRatio: '1:1',
+      temperature: 1,
+      model: 'gpt-image-2',
+      gptImageQuality: 'auto',
+      gptImageStyle: 'auto',
+      gptImageBackground: 'auto',
+      parallelCount: 1,
+    }, actions, vi.fn());
+
+    expect(actions.addJob).toHaveBeenCalledTimes(2);
+    expect(mockedCreateNovaTask).toHaveBeenCalledTimes(2);
   });
 });
