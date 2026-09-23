@@ -119,6 +119,7 @@ NOVA_RELEASE_APPROVED=1 bash publish-release.sh 3.4.1 l      # 只发 l 通道�
 | 卡在下载 Electron | 加镜像：`export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` 再跑 |
 | 打包报签名相关错误 | 确认命令里带了 `CSC_IDENTITY_AUTO_DISCOVERY=false`（脚本已带） |
 | 打开 dmg 里的 app 提示「已损坏」 | 未签名 + 下载来源标记 → `xattr -cr "/Applications/Nova Studio L.app"` |
+| **云端构建 30 秒就失败，日志写 `unbound variable`** | 脚本里 `$变量` 后面紧跟了全角字符（如 `$PRODUCT（`），macOS 的 bash 会把全角字节并入变量名 → 改成 `${PRODUCT}` 花括号写法（`bash -n` 查不出来，本地 Windows 也不复现，必须改完重跑云端才算验过） |
 
 ---
 
