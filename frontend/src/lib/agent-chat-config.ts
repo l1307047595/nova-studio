@@ -336,7 +336,7 @@ ${AGENT_CATEGORY_SLOT}
 - **暴力武器**（通用项）：spy / military / tactical / police / weapon / gun / explosive / toxin / surveillance / hacker
 - **品牌 IP**（通用项）：品牌名、知名 IP 角色名（标识统一写 "brand logo shown in the reference image"）
 - **医疗功效**（美妆 / 个护类目必查）：whitening / anti-wrinkle / anti-acne / heals / treats / clinical / cure / SPF / UV
-- **参考图原文复用扫描**：画面文字每个词必须新写或取自用户宣传语；与参考图文字区内容重叠就改写
+- **参考图原文复用扫描**：画面文字每个词必须新写或取自用户宣传语；与参考图文字区内容重叠就改写。**注意：新增文案（标题 / 卖点 / 角标）本身不是问题**——只要不命中本类目违禁词、也不与参考图矛盾（件数 / 规格 / 品牌），就允许出现参考图里没有的文字。
 - **另查**：prompt 全英文；补 no Chinese characters allowed in the image；多张之间风格基调句一致、商品视角 / 大小 / 占比一致
 
 ════════ 十、关于图片目录（本工作台机制） ════════
@@ -515,7 +515,8 @@ export const AGENT_IMAGE_DESCRIBE_PROMPT = `按固定字段读这张商品图，
  * 出图自检提示词：把「参考图 + 结果图」一起交给视觉模型比对。
  * 只认 JSON —— 结构化才能自动标注，散文没法用。
  */
-export const AGENT_SELF_CHECK_PROMPT = `你在做「出图自检」：判断结果图有没有偏离参考图里的那个商品。第 1 到第 N-1 张是参考图（商品素材），最后一张是刚生成的结果图。
+export const AGENT_SELF_CHECK_PROMPT = `你在做「出图自检」。第 1 到第 N-1 张是参考图（商品素材），最后一张是刚生成的结果图。
+你要判断**两件事**：① 商品保真 —— 结果图里的商品有没有偏离参考图；② 画面文字合规 —— 画面上的文字有没有违规（对照下面给你的违禁词表）。
 
 只输出一个 JSON 对象，不要 markdown 代码块、不要任何解释文字。格式：
 {"status":"pass","summary":"一句话结论","issues":[{"kind":"件数不符","detail":"参考图 3 件，结果图只画了 2 件"}]}
@@ -524,12 +525,47 @@ export const AGENT_SELF_CHECK_PROMPT = `你在做「出图自检」：判断结�
 - status：没问题填 "pass"；发现问题填 "warn"；图看不清无法判断填 "unknown"
 - summary：一句话结论，简体中文
 - issues：问题数组，没问题就是空数组。kind 只能从这几个里选：
-  "商品变形"（造型/比例/颜色/材质/包装/logo 与参考图不一致）、
-  "件数不符"、"画面文字新增"（结果图出现参考图没有的英文文字/角标/数量标注）、
-  "画面文字错误"（文字拼错或与参考图不符）、"画面缺件"（参考图有的元素丢了）、"其他"
+  "商品变形"（商品造型/比例/颜色/材质/包装与参考图不一致）、
+  "件数不符"（参考图几件、结果图几件对不上）、
+  "画面缺件"（参考图有的元素在结果图里丢了）、
+  "品牌文字被改"（参考图里的品牌名 / Logo / 文字商标被改写、抹掉或换成了别的字）、
+  "画面文字违规"（画面文字命中下方违禁词表）、
+  "画面文字矛盾"（数量 / 规格类标注与参考图对不上，例如参考图 3 件却写 "2PCS SET"）、
+  "其他"
+
+**重要：新增卖点文案不是问题。** 电商套图本来就要在画面上新写标题、卖点、角标等文案——
+结果图出现参考图里没有的文字，**只要不命中违禁词、也不与参考图矛盾（件数 / 规格 / 品牌）**，就一律不要记为 issue。
 
 判定要求：
-- 一律以参考图为准：商品本体、颜色、包装文字必须一致
-- 结果图凭空多出来的文字或角标（例如参考图没有却在图上写 "2PCS SET"）必须记 issue
-- 参考图与结果图件数不一致必须记 issue
-- 全部一致才填 pass；拿不准就填 unknown，不要硬判`;
+- 商品本体一律以参考图为准：造型、比例、颜色、材质、包装必须一致
+- 品牌 / Logo / 文字商标以参考图为准；参考图里没有品牌文字时，不要把「没有品牌文字」当问题
+- 画面文字是否违规，**只按下面给出的违禁词表判断**；表里没有的词不要自己扩大解释
+- 全部一致且文字合规才填 pass；拿不准就填 unknown，不要硬判`;
+
+/**
+ * 从本类目 identity 里抽出「合规 / 禁词」章节，喂给出图自检。
+ *
+ * 为什么必须传：自检要判「画面文字是否违规」，而**每个类目的违禁词不同**
+ * （捏捏乐 / 美妆 / 通用各有一份词库），不能靠模型凭通用印象判断，也不能跨类目套用。
+ */
+export function extractComplianceRules(identity: string, limit = 6000): string {
+  const lines = String(identity || '').split('\n');
+  const out: string[] = [];
+  let capturing = false;
+  let level = 0;
+  for (const line of lines) {
+    const heading = line.match(/^(#{1,4})\s+(.*)$/);
+    if (heading) {
+      const depth = heading[1].length;
+      if (/合规|安全词|违禁|禁词|禁用词|红线/.test(heading[2])) {
+        capturing = true;
+        level = depth;
+        out.push(line);
+        continue;
+      }
+      if (capturing && depth <= level) capturing = false;
+    }
+    if (capturing) out.push(line);
+  }
+  return out.join('\n').trim().slice(0, limit);
+}

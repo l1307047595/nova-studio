@@ -944,9 +944,11 @@ export async function selfCheckImages(
   imageDataUrls: string[],
   signal?: AbortSignal,
   baseUrl: string = '',
+  /** 本类目违禁词 / 合规词库（由调用方从本类目 identity 抽出来）。没有就只按通用红线判。 */
+  bannedWords: string = '',
 ): Promise<string> {
   return runAgentRequestWithRetry(
-    attemptSignal => requestMultiImageText(baseUrl, apiKey, model, protocol, imageDataUrls, attemptSignal),
+    attemptSignal => requestMultiImageText(baseUrl, apiKey, model, protocol, imageDataUrls, attemptSignal, bannedWords),
     signal,
     AGENT_SELF_CHECK_ATTEMPT_TIMEOUT_MS,
   );
@@ -959,9 +961,13 @@ async function requestMultiImageText(
   protocol: TextProviderProtocol,
   imageDataUrls: string[],
   signal: AbortSignal,
+  bannedWords: string = '',
 ): Promise<string> {
+  const complianceBlock = bannedWords.trim()
+    ? `\n\n═══ 本类目违禁词 / 合规词库（画面文字是否违规，只按这一份判断）═══\n${bannedWords.trim()}`
+    : '\n\n═══ 未提供本类目违禁词表：画面文字违规项只在明显命中通用红线（暴力武器 / 品牌 IP / 医疗功效）时记录 ═══';
   const parts = [
-    { type: 'text' as const, text: AGENT_SELF_CHECK_PROMPT },
+    { type: 'text' as const, text: `${AGENT_SELF_CHECK_PROMPT}${complianceBlock}` },
     ...imageDataUrls.map(url => ({ type: 'image' as const, imageDataUrl: url })),
   ];
   const body = buildSimpleProxyTextRequestBody(

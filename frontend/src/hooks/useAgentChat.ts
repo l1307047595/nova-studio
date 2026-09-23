@@ -31,12 +31,13 @@ import { executeAgentCdpTool, purgeCdpProductImages } from '@/lib/agent-cdp-tool
 import {
   loadAgentMemory, latestUserQuery, appendMemoryEntry, listPendingDrafts,
   approvePendingDraft, rejectPendingDraft, approveAllPendingDrafts,
-  queueMemoryDraft, isSessionAutoWriteEnabled, fetchMemoryEntries,
+  queueMemoryDraft, isSessionAutoWriteEnabled, fetchMemoryEntries, getCurrentMemory,
   type MemoryNoteKind, type PendingDraft,
 } from '@/lib/nova-memory';
 import { sinkAgentMemory, buildSinkTranscript, draftMemoryNote, draftReviewProposals } from '@/lib/nova-memory-sink';
 import {
   AGENT_DEFAULT_IMAGE_MODEL_FALLBACK,
+  extractComplianceRules,
   extractProductLinks,
   normalizeProductKey,
   type AgentMessage,
@@ -1066,6 +1067,8 @@ export function useAgentChat(sessionId = 'default') {
     dataUrls.push(`data:${result.mimeType};base64,${result.data}`);
 
     const imageIds = [...refs, record.imgId];
+    // 自检要判「画面文字是否违规」，必须喂**本类目的**违禁词库（各类目词库不同，不跨类目套用）
+    const complianceRules = extractComplianceRules(getCurrentMemory()?.identity || '');
     let parsed: AgentSelfCheck;
     try {
       const text = await selfCheckImages(
@@ -1075,6 +1078,7 @@ export function useAgentChat(sessionId = 'default') {
         dataUrls,
         undefined,
         configured.baseUrl,
+        complianceRules,
       );
       if (!isSessionCurrent(sessionGeneration)) return null;
       parsed = parseSelfCheckOutput(text, { imageIds, model: configured.modelId });
