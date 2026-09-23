@@ -24,14 +24,16 @@ export interface AgentMemoryPayload {
   feedbackDropped?: number;
   libraryDropped?: number;
   sessionState: string;
+  /** 近期记录（滚动窗口：最近 N 单的主张/骨架/色族）——只作记性，不当复用源 */
+  recent: string;
   proposals: string;
   queryTokenCount: number;
 }
 
-export type MemoryWriteKind = 'feedback' | 'library' | 'proposal' | 'session';
+export type MemoryWriteKind = 'feedback' | 'library' | 'proposal' | 'session' | 'recent';
 
 /** 可手动/由 AI 起草写入的记忆类型（session 是会话状态，不走这里） */
-export type MemoryNoteKind = 'feedback' | 'library' | 'proposal';
+export type MemoryNoteKind = 'feedback' | 'library' | 'proposal' | 'recent';
 
 let currentMemory: AgentMemoryPayload | null = null;
 let currentAgentId: string = readStoredAgentId();
@@ -128,8 +130,9 @@ export function formatMemoryBlock(memory: AgentMemoryPayload | null = currentMem
   const hasFeedback = memory.feedbackHits.length > 0;
   const hasLibrary = memory.libraryHits.length > 0;
   const hasSession = Boolean(memory.sessionState.trim());
+  const hasRecent = Boolean((memory.recent || '').trim());
   const hasProposals = Boolean(memory.proposals.trim());
-  if (!hasIdentity && !hasFeedback && !hasLibrary && !hasSession) return '';
+  if (!hasIdentity && !hasFeedback && !hasLibrary && !hasSession && !hasRecent) return '';
 
   const parts: string[] = [];
   parts.push('════════ 本类目记忆（本地文件，仅本 agent 可见） ════════');
@@ -141,6 +144,10 @@ export function formatMemoryBlock(memory: AgentMemoryPayload | null = currentMem
   }
   if (hasSession) {
     parts.push(`【本会话进行中的单 · sessions】\n${memory.sessionState.trim()}`);
+  }
+  if (hasRecent) {
+    parts.push('【近期记录 · recent.md（最近几单的主张/骨架/色族；**只用来避免撞车，不要照抄复用**）】\n'
+      + (memory.recent || '').trim());
   }
   if (hasFeedback) {
     parts.push(`【相关纠错 · feedback.md（命中本轮关键词）】\n${memory.feedbackHits.map(item => `- ${item}`).join('\n')}`
@@ -310,7 +317,7 @@ export interface MemoryRule {
 export interface MemoryEntriesView {
   identity: string;
   identityChars: number;
-  entries: { feedback: string[]; library: string[]; proposals: string[] };
+  entries: { feedback: string[]; library: string[]; proposals: string[]; recent: string[] };
   sessions: Array<{ id: string; content: string; updatedAt: string }>;
   rules?: MemoryRule[];
   limits: {
@@ -326,7 +333,7 @@ export interface MemoryEntriesView {
   review: MemoryReviewStatus;
 }
 
-export type MemoryEntryKind = 'feedback' | 'library' | 'proposals';
+export type MemoryEntryKind = 'feedback' | 'library' | 'proposals' | 'recent';
 
 export async function fetchMemoryEntries(agentId: string = currentAgentId): Promise<MemoryEntriesView | null> {
   try {

@@ -11,6 +11,7 @@ import {
   Loader2,
   RefreshCw,
   Search,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 import JSZip from 'jszip';
@@ -19,7 +20,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { HistoryImagePreview } from '@/components/workspace/results/HistoryImagePreview';
 import { ImageHoverActions } from '@/components/workspace/results/ImageHoverActions';
 import { getAgentImageBytes } from '@/lib/agent-context-store';
-import type { AgentImageRecord } from '@/lib/agent-chat-config';
+import type { AgentImageRecord, AgentSelfCheck } from '@/lib/agent-chat-config';
+import { describeSelfCheck } from '@/lib/nova-selfcheck';
 import type { ImageActionPayload } from '@/lib/image-actions';
 import { cn, clampIndex } from '@/lib/utils';
 import { createPortal } from 'react-dom';
@@ -29,6 +31,8 @@ interface AgentImageGalleryProps {
   sessionId: string;
   /** 重新生成图片描述，传入 imgId 返回新描述文本 */
   onRedescribe?: (imgId: string) => Promise<string>;
+  /** 手动补检：生图时没开自动自检，事后点按钮补跑 */
+  onSelfCheck?: (imgId: string) => Promise<AgentSelfCheck | null>;
 }
 
 function getUsableDescription(description: string): string {
@@ -56,7 +60,7 @@ function getAgentImageSourceBadge(source: AgentImageRecord['source']): string {
   return '上传';
 }
 
-export function AgentImageGallery({ images, sessionId, onRedescribe }: AgentImageGalleryProps) {
+export function AgentImageGallery({ images, sessionId, onRedescribe, onSelfCheck }: AgentImageGalleryProps) {
   const [open, setOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [previewImages, setPreviewImages] = useState<string[] | null>(null);
@@ -65,6 +69,7 @@ export function AgentImageGallery({ images, sessionId, onRedescribe }: AgentImag
   const [downloading, setDownloading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [descDialogImg, setDescDialogImg] = useState<{ imgId: string; description: string } | null>(null);
+  const [isSelfChecking, setIsSelfChecking] = useState(false);
   const [descCopied, setDescCopied] = useState(false);
   const [isRedescribing, setIsRedescribing] = useState(false);
   const previewObjectUrlsRef = useRef<string[]>([]);
@@ -321,6 +326,20 @@ export function AgentImageGallery({ images, sessionId, onRedescribe }: AgentImag
                       )}>
                         {getAgentImageSourceBadge(img.source)}
                       </span>
+                      {/* 自检结论角标：只标已检过的图，未检的保持干净 */}
+                      {img.selfCheck?.status === 'warn' && (
+                        <span
+                          className="absolute bottom-1.5 left-1.5 rounded bg-destructive/85 px-1 text-[9px] font-medium text-white"
+                          title={img.selfCheck.issues.map(issue => `${issue.kind}：${issue.detail}`).join('\n') || img.selfCheck.summary}
+                        >
+                          ⚠ {img.selfCheck.issues.length || 1}
+                        </span>
+                      )}
+                      {img.selfCheck?.status === 'pass' && (
+                        <span className="absolute bottom-1.5 left-1.5 rounded bg-emerald-500/80 px-1 text-[9px] font-medium text-white" title="自检通过：与参考图一致">
+                          ✓
+                        </span>
+                      )}
                     </button>
                     <ImageHoverActions
                       payload={makeActionPayload(img)}
@@ -389,6 +408,53 @@ export function AgentImageGallery({ images, sessionId, onRedescribe }: AgentImag
             <div className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
               {descDialogImg.description}
             </div>
+
+            {/* 出图自检：结论 + 手动补检（自动自检关掉时用这个） */}
+            {(() => {
+              const record = images.find(item => item.imgId === descDialogImg.imgId);
+              const selfCheck = record?.selfCheck;
+              const info = describeSelfCheck(selfCheck);
+              return (
+                <div className="mt-3 rounded-lg border border-border p-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={cn(
+                      'text-xs font-medium',
+                      info.tone === 'warn' ? 'text-destructive' : info.tone === 'pass' ? 'text-emerald-600' : 'text-muted-foreground',
+                    )}>
+                      {info.label}
+                    </span>
+                    {onSelfCheck && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1 px-2 text-[11px]"
+                        disabled={isSelfChecking}
+                        onClick={async () => {
+                          setIsSelfChecking(true);
+                          try {
+                            await onSelfCheck(descDialogImg.imgId);
+                          } catch {
+                            /* runSelfCheck 内部已把失败原因写进结果 */
+                          } finally {
+                            setIsSelfChecking(false);
+                          }
+                        }}
+                      >
+                        <ShieldCheck className={cn('h-3.5 w-3.5', isSelfChecking && 'animate-pulse')} />
+                        {isSelfChecking ? '自检中…' : selfCheck ? '重新自检' : '自检'}
+                      </Button>
+                    )}
+                  </div>
+                  {info.detail ? (
+                    <div className="mt-1.5 whitespace-pre-wrap text-[11px] leading-relaxed text-muted-foreground">{info.detail}</div>
+                  ) : null}
+                  {selfCheck?.status === 'warn' ? (
+                    <div className="mt-1 text-[10px] text-muted-foreground">{selfCheck.summary}</div>
+                  ) : null}
+                </div>
+              );
+            })()}
+
             <div className="mt-2 flex items-center justify-end gap-2 border-t pt-3">
               {(!descDialogImg.description ||
                 descDialogImg.description === 'AI 未生成描述' ||

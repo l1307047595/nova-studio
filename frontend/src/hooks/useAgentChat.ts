@@ -22,8 +22,11 @@ import {
 import {
   streamAgentChat,
   describeImage,
+  selfCheckImages,
   type StreamAgentHandle,
 } from '@/lib/agent-chat-client';
+import { isAutoSelfCheckEnabled, parseSelfCheckOutput } from '@/lib/nova-selfcheck';
+import type { AgentSelfCheck } from '@/lib/agent-chat-config';
 import { executeAgentCdpTool, purgeCdpProductImages } from '@/lib/agent-cdp-tools';
 import {
   loadAgentMemory, latestUserQuery, appendMemoryEntry, listPendingDrafts,
@@ -740,7 +743,7 @@ export function useAgentChat(sessionId = 'default') {
    * 写完立刻重读一次，让后面几轮的注入马上带上这条——自动写入仍然只在空闲心跳发生。
    */
   const rememberMemoryEntry = useCallback(async (
-    kind: 'feedback' | 'library' | 'proposal',
+    kind: 'feedback' | 'library' | 'proposal' | 'recent',
     text: string,
   ): Promise<{ ok: boolean; error?: string }> => {
     const result = await appendMemoryEntry(kind, text);
@@ -1010,6 +1013,108 @@ export function useAgentChat(sessionId = 'default') {
     await patchImageDescription(imgId, description, sessionGeneration);
     return description;
   }, [getAgentTextModelConfig, images, isSessionCurrent, patchImageDescription]);
+
+  const patchImageSelfCheck = useCallback(async (
+    imgId: string,
+    selfCheck: AgentSelfCheck,
+    sessionGeneration: number,
+  ) => {
+    if (!isSessionCurrent(sessionGeneration)) return;
+    const current = imagesRef.current.find(img => img.imgId === imgId);
+    if (!current) return;
+    const updated = { ...current, selfCheck };
+    await putImageRecord(updated, sessionIdRef.current, sessionGeneration);
+    if (!isSessionCurrent(sessionGeneration)) return;
+    imagesRef.current = imagesRef.current.map(img => (img.imgId === imgId ? updated : img));
+    setImages(prev => prev.map(img => (img.imgId === imgId ? updated : img)));
+  }, [isSessionCurrent]);
+
+  /**
+   * 出图自检执行体：参考图（最多 3 张）+ 结果图一起交给视觉模型比对。
+   * 用全尺寸字节而不是缩略图 —— 缩略图看不清包装文字，判不出「画面文字错误」。
+   */
+  const runSelfCheckForRecord = useCallback(async (
+    record: AgentImageRecord,
+    referenceIds: string[],
+    sessionGeneration: number,
+  ): Promise<AgentSelfCheck | null> => {
+    if (!isSessionCurrent(sessionGeneration)) return null;
+    let configured: ReturnType<typeof getAgentTextModelConfig>;
+    try {
+      configured = getAgentTextModelConfig();
+    } catch {
+      return null;
+    }
+
+    const refs = referenceIds.slice(0, 3);
+    const dataUrls: string[] = [];
+    for (const id of refs) {
+      const image = await getAgentImageBase64(id, sessionIdRef.current, sessionGeneration);
+      if (!isSessionCurrent(sessionGeneration)) return null;
+      if (image) dataUrls.push(`data:${image.mimeType};base64,${image.data}`);
+    }
+    // 没有参考图就不检：铁律下出图必须有参考图，真没有就说明这不是商品图
+    if (dataUrls.length === 0) return null;
+
+    const result = await getAgentImageBase64(record.imgId, sessionIdRef.current, sessionGeneration);
+    if (!isSessionCurrent(sessionGeneration)) return null;
+    if (!result) return null;
+    dataUrls.push(`data:${result.mimeType};base64,${result.data}`);
+
+    const imageIds = [...refs, record.imgId];
+    let parsed: AgentSelfCheck;
+    try {
+      const text = await selfCheckImages(
+        configured.apiKey,
+        configured.modelId,
+        configured.protocol,
+        dataUrls,
+        undefined,
+        configured.baseUrl,
+      );
+      if (!isSessionCurrent(sessionGeneration)) return null;
+      parsed = parseSelfCheckOutput(text, { imageIds, model: configured.modelId });
+    } catch (error) {
+      parsed = {
+        status: 'error',
+        summary: '自检请求失败',
+        issues: [],
+        checkedAt: Date.now(),
+        imageIds,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+
+    await patchImageSelfCheck(record.imgId, parsed, sessionGeneration);
+    return parsed;
+  }, [getAgentTextModelConfig, isSessionCurrent, patchImageSelfCheck]);
+
+  /** 手动补检：生图时没开自动自检，事后在图片上点「自检」补跑 */
+  const runSelfCheck = useCallback(async (imgId: string): Promise<AgentSelfCheck | null> => {
+    const sessionGeneration = sessionGenerationRef.current;
+    const record = imagesRef.current.find(img => img.imgId === imgId);
+    if (!record) throw new Error(`图片 ${imgId} 不存在`);
+
+    // 从引用过这张图的那条生成消息里取回当时用的参考图
+    const owner = [...messagesRef.current].reverse().find(message =>
+      message.imageIds?.includes(imgId) && (message.proposalData?.referencedImageIds?.length ?? 0) > 0,
+    );
+    const referenceIds = owner?.proposalData?.referencedImageIds ?? [];
+
+    if (referenceIds.length === 0) {
+      const skipped: AgentSelfCheck = {
+        status: 'unknown',
+        summary: '这张图没有关联到参考图，无法自检',
+        issues: [],
+        checkedAt: Date.now(),
+        imageIds: [imgId],
+      };
+      await patchImageSelfCheck(imgId, skipped, sessionGeneration);
+      return skipped;
+    }
+
+    return runSelfCheckForRecord(record, referenceIds, sessionGeneration);
+  }, [patchImageSelfCheck, runSelfCheckForRecord]);
 
   const persistStreamFailure = useCallback((
     message: string,
@@ -1585,6 +1690,13 @@ export function useAgentChat(sessionId = 'default') {
         createdAt: Date.now(),
       }, sessionGeneration);
       if (!persisted) throw new Error('已停止');
+
+      // 出图后自动自检：不 await，图先给用户看，结果异步补写到图片上
+      if (isAutoSelfCheckEnabled()) {
+        for (const record of records) {
+          void runSelfCheckForRecord(record, data.selectedImageIds, sessionGeneration).catch(() => undefined);
+        }
+      }
     } catch (error) {
       if (isStoppedError(error) || !isSessionCurrent(sessionGeneration)) {
         await Promise.all(records.map(record => deleteAgentImageIfUnreferenced(record, sessionIdRef.current, sessionGeneration)));
@@ -1631,7 +1743,7 @@ export function useAgentChat(sessionId = 'default') {
       text: `当前商品已生成，继续处理下一个商品的提案（剩余 ${rest.length} 个待确认）。`,
       createdAt: Date.now(),
     });
-  }, [appendMessage, ingestImage, isGenerationTaskActive, isSessionCurrent, maybeAutoContinue, proposalDataFromGeneration, removePendingGenerationForTask]);
+  }, [appendMessage, ingestImage, isGenerationTaskActive, isSessionCurrent, maybeAutoContinue, proposalDataFromGeneration, removePendingGenerationForTask, runSelfCheckForRecord]);
 
   const resumeGeneration = useCallback(async (data: PendingGenerationData, epoch: number) => {
     try {
@@ -2206,6 +2318,7 @@ export function useAgentChat(sessionId = 'default') {
     clearSession,
     clearContext,
     redescribeImage,
+    runSelfCheck,
     rememberMemoryEntry,
     draftMemoryNoteForReview,
     pendingDrafts,

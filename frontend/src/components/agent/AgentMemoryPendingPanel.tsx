@@ -16,9 +16,10 @@ const KIND_LABEL: Record<string, string> = {
   library: '案例 / 色板',
   proposal: '规则建议',
   session: '会话状态',
+  recent: '近期记录',
 };
 
-const KIND_ORDER: Array<MemoryNoteKind | 'session'> = ['feedback', 'library', 'proposal', 'session'];
+const KIND_ORDER: Array<MemoryNoteKind | 'session'> = ['feedback', 'library', 'proposal', 'recent', 'session'];
 
 /**
  * 待确认面板：心跳只生成草稿，这里逐条确认/驳回。

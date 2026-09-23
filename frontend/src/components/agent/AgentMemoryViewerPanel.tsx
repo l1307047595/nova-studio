@@ -22,6 +22,7 @@ const TABS: Array<{ key: 'identity' | MemoryEntryKind | 'sessions'; label: strin
   { key: 'feedback', label: '纠错', hint: '命中当前话题时整块注入' },
   { key: 'library', label: '案例 / 色板', hint: '通过版要点、基调句、新试的色板 —— 命中时注入' },
   { key: 'proposals', label: '规则建议', hint: 'AI 提议的规则改动；采纳后会追加进「规则」的采纳记录' },
+  { key: 'recent', label: '近期记录', hint: '最近几单的主张/骨架机位/色族 —— 只作记性（避免撞车），刻意不积累、不当复用源' },
   { key: 'sessions', label: '会话状态', hint: '每个会话「进行中的单」，多开对话各存各的' },
 ];
 

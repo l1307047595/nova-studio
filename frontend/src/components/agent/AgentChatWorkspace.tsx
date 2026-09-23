@@ -7,6 +7,7 @@ import {
   Brain,
   Check,
   Chrome,
+  ShieldCheck,
   CloudUpload,
   Eraser,
   FileText,
@@ -27,6 +28,7 @@ import {
   Thermometer,
   X,
 } from 'lucide-react';
+import { isAutoSelfCheckEnabled, setAutoSelfCheckEnabled } from '@/lib/nova-selfcheck';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Slider } from '@/components/ui/slider';
@@ -171,6 +173,8 @@ export function AgentChatWorkspace({
   const containerRef = useRef<HTMLDivElement>(null);
 
   const intentRecognition = agent.intentRecognition;
+  // 出图自检开关：默认开；关掉后仍可在图片详情里点「自检」手动补跑
+  const [autoSelfCheck, setAutoSelfCheck] = useState(() => isAutoSelfCheckEnabled());
 
   // ===== 用户参数状态（持久化到 localStorage）=====
   const savedParams = loadJsonFromStorage<AgentParamsSettings>(AGENT_PARAMS_KEY);
@@ -638,6 +642,7 @@ export function AgentChatWorkspace({
             images={agent.images}
             sessionId={activeSessionId}
             onRedescribe={agent.redescribeImage}
+            onSelfCheck={agent.runSelfCheck}
           />
           <Button
             variant="ghost"
@@ -697,6 +702,7 @@ export function AgentChatWorkspace({
                 : undefined
             }
             onRedescribe={agent.redescribeImage}
+            onSelfCheck={agent.runSelfCheck}
           />
         ))}
 
@@ -1036,6 +1042,29 @@ export function AgentChatWorkspace({
           >
             <Chrome className="h-4 w-4" />
             <span className="text-xs">浏览器</span>
+          </Button>
+
+          {/* 出图后自动自检（异步，不挡出图；关掉后可手动补检） */}
+          <Button
+            variant={autoSelfCheck ? 'default' : 'ghost'}
+            size="sm"
+            className={cn(
+              'shrink-0 gap-1.5',
+              autoSelfCheck
+                ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                : 'text-muted-foreground'
+            )}
+            onClick={() => {
+              const next = !autoSelfCheck;
+              setAutoSelfCheck(next);
+              setAutoSelfCheckEnabled(next);
+            }}
+            title={autoSelfCheck
+              ? '已开启出图自检：出图后自动比对参考图，发现问题会标在图上（不影响出图速度）'
+              : '出图自检已关闭：需要时可在图片详情里点「自检」手动补跑'}
+          >
+            <ShieldCheck className="h-4 w-4" />
+            <span className="text-xs">自检</span>
           </Button>
 
           {/* 意图识别开关 */}

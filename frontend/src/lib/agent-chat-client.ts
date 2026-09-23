@@ -7,6 +7,7 @@ import {
   AGENT_CATEGORY_SLOT,
   AGENT_CDP_SYSTEM_SUFFIX,
   AGENT_IMAGE_DESCRIBE_PROMPT,
+  AGENT_SELF_CHECK_PROMPT,
   PROPOSE_IMAGE_ACTION_TOOL,
   extractProductLinks,
   normalizeProductKey,
@@ -33,6 +34,8 @@ import { formatMemoryBlock } from '@/lib/nova-memory';
 const AGENT_GPT_REQUEST_MAX_ATTEMPTS = 3;
 const AGENT_CHAT_ATTEMPT_TIMEOUT_MS = 45_000;
 const AGENT_IMAGE_DESCRIBE_ATTEMPT_TIMEOUT_MS = 20_000;
+// 自检要同时看 2~4 张图，比单张描述慢，超时给宽一点
+const AGENT_SELF_CHECK_ATTEMPT_TIMEOUT_MS = 90_000;
 
 class AgentRequestTimeoutError extends Error {
   constructor(timeoutMs: number) {
@@ -871,6 +874,7 @@ async function streamAgentRound(
       model: input.model,
       stream: true,
       requestBody: body,
+      novaAgentId: getCurrentAgentId(),
     }),
     signal,
   });
@@ -929,6 +933,68 @@ export async function describeImage(
   );
 }
 
+/**
+ * 出图自检：把参考图 + 结果图一起交给视觉模型，返回原始文本（解析交给调用方）。
+ * 走同一条 /api/nova/proxy/text 通道，因此用量会自动进「用量看板」。
+ */
+export async function selfCheckImages(
+  apiKey: string,
+  model: string,
+  protocol: TextProviderProtocol,
+  imageDataUrls: string[],
+  signal?: AbortSignal,
+  baseUrl: string = '',
+): Promise<string> {
+  return runAgentRequestWithRetry(
+    attemptSignal => requestMultiImageText(baseUrl, apiKey, model, protocol, imageDataUrls, attemptSignal),
+    signal,
+    AGENT_SELF_CHECK_ATTEMPT_TIMEOUT_MS,
+  );
+}
+
+async function requestMultiImageText(
+  baseUrl: string,
+  apiKey: string,
+  model: string,
+  protocol: TextProviderProtocol,
+  imageDataUrls: string[],
+  signal: AbortSignal,
+): Promise<string> {
+  const parts = [
+    { type: 'text' as const, text: AGENT_SELF_CHECK_PROMPT },
+    ...imageDataUrls.map(url => ({ type: 'image' as const, imageDataUrl: url })),
+  ];
+  const body = buildSimpleProxyTextRequestBody(
+    protocol,
+    model || AGENT_TEXT_MODEL_FALLBACK,
+    parts,
+    { reasoningEffort: 'low' },
+  );
+
+  const response = await fetch('/api/nova/proxy/text', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      protocol,
+      baseUrl,
+      apiKey,
+      model,
+      stream: false,
+      requestBody: body,
+      novaAgentId: getCurrentAgentId(),
+    }),
+    signal,
+  });
+
+  if (!response.ok) {
+    throw await readHttpError(response);
+  }
+
+  const data = await response.json().catch(() => null);
+  if (!data) return '';
+  return extractTextOutput(protocol, data).trim();
+}
+
 async function requestImageDescription(
   baseUrl: string,
   apiKey: string,
@@ -957,6 +1023,7 @@ async function requestImageDescription(
       model,
       stream: false,
       requestBody: body,
+      novaAgentId: getCurrentAgentId(),
     }),
     signal,
   });

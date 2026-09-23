@@ -65,6 +65,30 @@ export interface AgentImageRecord {
   /** 商品显示名称，仅用于界面和模型上下文标注 */
   productName?: string;
   createdAt: number;
+  /** 出图自检结果（参考图 vs 结果图）；异步补写，不影响出图 */
+  selfCheck?: AgentSelfCheck;
+}
+
+/** 出图自检结论：pass 没问题 / warn 发现问题 / unknown 看不清 / error 自检本身失败 */
+export type AgentSelfCheckStatus = 'pass' | 'warn' | 'unknown' | 'error';
+
+export interface AgentSelfCheckIssue {
+  /** 问题类型：商品变形 / 件数不符 / 画面文字新增 / 画面文字错误 / 画面缺件 / 其他 */
+  kind: string;
+  detail: string;
+}
+
+export interface AgentSelfCheck {
+  status: AgentSelfCheckStatus;
+  summary: string;
+  issues: AgentSelfCheckIssue[];
+  checkedAt: number;
+  /** 参与自检的图片 id（参考图在前、结果图在后） */
+  imageIds?: string[];
+  model?: string;
+  /** 模型原始输出，便于排查 */
+  raw?: string;
+  error?: string;
 }
 
 // ===== 意图抽取：函数调用结果 =====
@@ -475,4 +499,37 @@ export const PROPOSE_IMAGE_ACTION_TOOL = {
 
 // ===== 视觉描述提示词 =====
 
-export const AGENT_IMAGE_DESCRIBE_PROMPT = `用一到两句简体中文描述这张图片，覆盖主体、风格、主要颜色和关键元素，便于后续判断是否复用它作为参考图。只输出描述本身，不要任何前缀、解释或标点装饰。`;
+// 识图规则：固定字段读商品（改这里＝改识图规则）。
+// 用途：后面的风格 / 构图 / 色族决策**必须引用这里的字段作为依据**；字段太薄，模型就只能凭想象画。
+export const AGENT_IMAGE_DESCRIBE_PROMPT = `按固定字段读这张商品图，八个字段各一篇段，极简、无解释，缺项写「无」，不要任何前缀或标点装饰：
+造型轮廓=（形状/比例/有无表情或细节）
+件数与组合=（几件/是否成组）
+材质手感=（哑光·亮面·透明 + 软硬）
+色族=（主色 + 辅助色）
+包装与印刷=（有无文字、在什么位置、样式）
+可捏部位=
+主题或节日元素=
+是否食品造型=（是/否）`;
+
+/**
+ * 出图自检提示词：把「参考图 + 结果图」一起交给视觉模型比对。
+ * 只认 JSON —— 结构化才能自动标注，散文没法用。
+ */
+export const AGENT_SELF_CHECK_PROMPT = `你在做「出图自检」：判断结果图有没有偏离参考图里的那个商品。第 1 到第 N-1 张是参考图（商品素材），最后一张是刚生成的结果图。
+
+只输出一个 JSON 对象，不要 markdown 代码块、不要任何解释文字。格式：
+{"status":"pass","summary":"一句话结论","issues":[{"kind":"件数不符","detail":"参考图 3 件，结果图只画了 2 件"}]}
+
+字段要求：
+- status：没问题填 "pass"；发现问题填 "warn"；图看不清无法判断填 "unknown"
+- summary：一句话结论，简体中文
+- issues：问题数组，没问题就是空数组。kind 只能从这几个里选：
+  "商品变形"（造型/比例/颜色/材质/包装/logo 与参考图不一致）、
+  "件数不符"、"画面文字新增"（结果图出现参考图没有的英文文字/角标/数量标注）、
+  "画面文字错误"（文字拼错或与参考图不符）、"画面缺件"（参考图有的元素丢了）、"其他"
+
+判定要求：
+- 一律以参考图为准：商品本体、颜色、包装文字必须一致
+- 结果图凭空多出来的文字或角标（例如参考图没有却在图上写 "2PCS SET"）必须记 issue
+- 参考图与结果图件数不一致必须记 issue
+- 全部一致才填 pass；拿不准就填 unknown，不要硬判`;

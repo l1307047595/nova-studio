@@ -13,6 +13,7 @@ import { SessionSwitcher } from '@/components/agent/SessionSwitcher';
 import { AssetsWorkspace } from '@/components/assets/AssetsWorkspace';
 import { CanvasWorkspace } from '@/components/canvas/CanvasWorkspace';
 import { SliceWorkspace } from '@/components/slice/SliceWorkspace';
+import { UsageDashboard } from '@/components/usage/UsageDashboard';
 import { PromptGallery } from '@/components/PromptGallery';
 import { SettingsModal, type SettingsTab } from '@/components/SettingsModal';
 import { MissingApiKeyDialog } from '@/components/MissingApiKeyDialog';
@@ -66,7 +67,7 @@ export function WorkspaceShell() {
   }, []);
   const [missingApiKeyDialogOpen, setMissingApiKeyDialogOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'image-generation' | 'video-generation' | 'agent' | 'canvas' | 'image-to-slice' | 'assets' | 'reverse-prompt' | 'gif' | 'prompt-gallery'>('agent');
+  const [activeTab, setActiveTab] = useState<'image-generation' | 'video-generation' | 'agent' | 'canvas' | 'image-to-slice' | 'assets' | 'reverse-prompt' | 'gif' | 'usage' | 'prompt-gallery'>('agent');
   const [videoInitialJob, setVideoInitialJob] = useState<PluginJob | null>(null);
   const [generationHistoryFilter, setGenerationHistoryFilter] = useState<GenerationHistoryFilter>('all');
   const [generationClearScope, setGenerationClearScope] = useState<HistoryClearScope | null>(null);
@@ -535,6 +536,10 @@ export function WorkspaceShell() {
                   onError={message => showToast(message, 'error')}
                   showToast={showToast}
                 />
+              </TabsContent>
+
+              <TabsContent value="usage" keepMounted className={cn(wideMode ? 'space-y-6 xl:min-h-0 xl:flex xl:flex-col' : 'space-y-6')}>
+                <UsageDashboard wideMode={wideMode} active={activeTab === 'usage'} />
               </TabsContent>
 
               {promptGallery.showPromptGallery && (

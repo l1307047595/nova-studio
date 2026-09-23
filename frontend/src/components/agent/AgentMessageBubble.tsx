@@ -11,6 +11,7 @@ import {
   FileText,
   Pencil,
   RefreshCw,
+  ShieldCheck,
   Star,
   Trash2,
   Undo2,
@@ -25,7 +26,8 @@ import { cn, clampIndex } from '@/lib/utils';
 import { renderMarkdown } from '@/lib/render-reasoning';
 import { handleMarkdownCodeCopyButtonClick } from '@/lib/markdown-code-copy';
 import { getAgentImageBytes } from '@/lib/agent-context-store';
-import type { AgentMessage, AgentImageRecord } from '@/lib/agent-chat-config';
+import type { AgentMessage, AgentImageRecord, AgentSelfCheck } from '@/lib/agent-chat-config';
+import { describeSelfCheck } from '@/lib/nova-selfcheck';
 import type { ImageActionPayload } from '@/lib/image-actions';
 
 export interface AgentMessageBubbleProps {
@@ -43,6 +45,8 @@ export interface AgentMessageBubbleProps {
   /** 仅最后一条用户消息会拿到该回调；见 useAgentChat 的 retryableMessageId */
   onRetry?: () => void;
   onRedescribe?: (imgId: string) => Promise<string>;
+  /** 手动补检：生图时没开自动自检，事后点按钮补跑 */
+  onSelfCheck?: (imgId: string) => Promise<AgentSelfCheck | null>;
   /** 「这张很好 → 存为案例」：把这张图交给 AI 起草一条可复用案例，进待确认队列 */
   onSaveAsCase?: (img: AgentImageRecord) => void;
 }
@@ -78,6 +82,7 @@ export function AgentMessageBubble({
   onRollback,
   onRetry,
   onRedescribe,
+  onSelfCheck,
   onSaveAsCase,
   sessionId,
 }: AgentMessageBubbleProps) {
@@ -86,6 +91,7 @@ export function AgentMessageBubble({
   const [previewIndex, setPreviewIndex] = useState(0);
   const [copiedText, setCopiedText] = useState(false);
   const [descDialogImg, setDescDialogImg] = useState<{ imgId: string; description: string } | null>(null);
+  const [isSelfChecking, setIsSelfChecking] = useState(false);
   const [descCopied, setDescCopied] = useState(false);
   const [isRedescribing, setIsRedescribing] = useState(false);
   const previewObjectUrlsRef = useRef<string[]>([]);
@@ -239,6 +245,20 @@ export function AgentMessageBubble({
                 <span className="pointer-events-none absolute left-1 top-1 rounded bg-black/60 px-1 text-[9px] text-white">
                   {img.imgId}
                 </span>
+                {/* 自检结论：只标已检过的图 */}
+                {img.selfCheck?.status === 'warn' && (
+                  <span
+                    className="pointer-events-none absolute bottom-1 left-1 rounded bg-destructive/85 px-1 text-[9px] font-medium text-white"
+                    title={img.selfCheck.issues.map(issue => `${issue.kind}：${issue.detail}`).join('\n') || img.selfCheck.summary}
+                  >
+                    ⚠ {img.selfCheck.issues.length || 1}
+                  </span>
+                )}
+                {img.selfCheck?.status === 'pass' && (
+                  <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-emerald-500/80 px-1 text-[9px] font-medium text-white" title="自检通过：与参考图一致">
+                    ✓
+                  </span>
+                )}
                 <ImageHoverActions
                   payload={makeActionPayload(img)}
                   onPreview={() => void openPreview(linkedImages, index)}
@@ -367,6 +387,49 @@ export function AgentMessageBubble({
             <div className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
               {descDialogImg.description}
             </div>
+
+            {/* 出图自检：结论 + 手动补检 */}
+            {(() => {
+              const selfCheck = imageMap.get(descDialogImg.imgId)?.selfCheck;
+              const info = describeSelfCheck(selfCheck);
+              return (
+                <div className="mt-3 rounded-lg border border-border p-2.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className={cn(
+                      'text-xs font-medium',
+                      info.tone === 'warn' ? 'text-destructive' : info.tone === 'pass' ? 'text-emerald-600' : 'text-muted-foreground',
+                    )}>
+                      {info.label}
+                    </span>
+                    {onSelfCheck && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 gap-1 px-2 text-[11px]"
+                        disabled={isSelfChecking}
+                        onClick={async () => {
+                          setIsSelfChecking(true);
+                          try {
+                            await onSelfCheck(descDialogImg.imgId);
+                          } catch {
+                            /* runSelfCheck 内部已把失败原因写进结果 */
+                          } finally {
+                            setIsSelfChecking(false);
+                          }
+                        }}
+                      >
+                        <ShieldCheck className={cn('h-3.5 w-3.5', isSelfChecking && 'animate-pulse')} />
+                        {isSelfChecking ? '自检中…' : selfCheck ? '重新自检' : '自检'}
+                      </Button>
+                    )}
+                  </div>
+                  {info.detail ? (
+                    <div className="mt-1.5 whitespace-pre-wrap text-[11px] leading-relaxed text-muted-foreground">{info.detail}</div>
+                  ) : null}
+                </div>
+              );
+            })()}
+
             <div className="mt-2 flex items-center justify-end gap-2 border-t pt-3">
               {(!descDialogImg.description || descDialogImg.description === 'AI 未生成描述' || descDialogImg.description === '(无描述)' || descDialogImg.description === '(图片描述生成失败)') && onRedescribe && (
                 <Button

@@ -191,7 +191,7 @@ const MEMORY_ROOT = process.env.NOVA_MEMORY_DIR || path.join(__dirname, 'data', 
 const MEMORY_AGENT_RE = /^[a-z0-9_-]{1,32}$/;
 // 会话 id 可能是 UUID（36 字符、含连字符），比 agent 名宽松；仍禁点号与斜杠，杜绝路径穿越
 const MEMORY_SESSION_RE = /^[a-zA-Z0-9_-]{1,64}$/;
-const MEMORY_FILE_NAMES = { identity: 'identity.md', feedback: 'feedback.md', library: 'library.md', proposals: 'proposals.md' };
+const MEMORY_FILE_NAMES = { identity: 'identity.md', feedback: 'feedback.md', library: 'library.md', proposals: 'proposals.md', recent: 'recent.md' };
 const MEMORY_LIMITS = {
   identity: Number(process.env.NOVA_MEMORY_IDENTITY_LIMIT) || 32768,
   hitCount: Number(process.env.NOVA_MEMORY_HIT_COUNT) || 8,
@@ -205,6 +205,9 @@ const MEMORY_LIMITS = {
   ruleReviseRefs: Number(process.env.NOVA_MEMORY_RULE_REVISE_REFS) || 3,
   // 规则效力：采纳后多少天一次都没被引用，算「待复核」
   ruleStaleDays: Number(process.env.NOVA_MEMORY_RULE_STALE_DAYS) || 14,
+  // 近期记录：滚动窗口保留最近几单（只作记性，不当复用源），并限制注入长度
+  recentKeep: Number(process.env.NOVA_MEMORY_RECENT_KEEP) || 6,
+  recentChars: Number(process.env.NOVA_MEMORY_RECENT_CHARS) || 1600,
   // 命中排序：标签完全命中一条加多少分（相对正文 bigram 命中的 1 分）
   tagWeight: Number(process.env.NOVA_MEMORY_TAG_WEIGHT) || 3,
 };
@@ -909,6 +912,23 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
     CREATE INDEX IF NOT EXISTS idx_tasks_expires_at ON tasks(expires_at);
     CREATE INDEX IF NOT EXISTS idx_task_items_task_id ON task_items(task_id);
+    CREATE TABLE IF NOT EXISTS usage_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      agent_id TEXT,
+      model TEXT,
+      provider TEXT,
+      protocol TEXT,
+      images INTEGER NOT NULL DEFAULT 0,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      cached_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      cost_cny REAL NOT NULL DEFAULT 0,
+      meta_json TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_usage_events_ts ON usage_events(ts);
+    CREATE INDEX IF NOT EXISTS idx_usage_events_kind ON usage_events(kind);
   `);
 
   // 插件素材表（plugin_media）与任务表同库，任务清理即素材清理
@@ -928,6 +948,143 @@ function initDatabase() {
   for (const id of interruptedIds) {
     deleteTaskImageFiles(id);
   }
+}
+
+// ===== 用量与成本记账 =====
+//
+// 两个口径分开：生图按「张」计价（中转站 gpt-image-2 = 0.015 元/张）；
+// 文本/视觉模型按 token 计价，价目表与高峰时段由环境变量可覆盖，
+// 默认：缓存命中 0.02（空闲）/0.04（高峰），未命中 1/2，输出 4/8（元/百万 token）。
+const IMAGE_UNIT_PRICE_CNY = Number(process.env.NOVA_IMAGE_UNIT_PRICE_CNY || '0.015');
+const TEXT_PRICE_CNY_PER_M = {
+  offpeak: {
+    cacheHit: Number(process.env.NOVA_TEXT_PRICE_CACHE_HIT || '0.02'),
+    cacheMiss: Number(process.env.NOVA_TEXT_PRICE_CACHE_MISS || '1'),
+    output: Number(process.env.NOVA_TEXT_PRICE_OUTPUT || '4'),
+  },
+  peak: {
+    cacheHit: Number(process.env.NOVA_TEXT_PRICE_CACHE_HIT_PEAK || '0.04'),
+    cacheMiss: Number(process.env.NOVA_TEXT_PRICE_CACHE_MISS_PEAK || '2'),
+    output: Number(process.env.NOVA_TEXT_PRICE_OUTPUT_PEAK || '8'),
+  },
+};
+// 高峰时段：北京时间周一至周五 9:00-12:00、14:00-18:00（含起点不含终点）
+const PEAK_WINDOWS = [[9, 12], [14, 18]];
+
+function beijingParts(date = new Date()) {
+  const shifted = new Date(date.getTime() + 8 * 3600 * 1000);
+  return { day: shifted.getUTCDay(), hour: shifted.getUTCHours() };
+}
+
+function isPeakHours(date = new Date()) {
+  const { day, hour } = beijingParts(date);
+  if (day < 1 || day > 5) return false;
+  return PEAK_WINDOWS.some(([from, to]) => hour >= from && hour < to);
+}
+
+/**
+ * 从各种协议的上游响应里归一化出 token 用量。
+ * 认得的形状：OpenAI chat/completions、OpenAI Responses、Gemini usageMetadata、Anthropic messages。
+ * 认不出就返回 null —— 宁可不记账，也不要编一个数出来。
+ */
+function extractUsage(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  // Responses 流式的终态事件把 usage 嵌在 response 里：{type:"response.completed", response:{usage:{...}}}
+  const u = payload.usage || payload.usageMetadata || payload.response?.usage;
+  if (!u || typeof u !== 'object') return null;
+  const promptTokens = Number(u.prompt_tokens ?? u.input_tokens ?? u.promptTokenCount ?? 0) || 0;
+  const completionTokens = Number(u.completion_tokens ?? u.output_tokens ?? u.candidatesTokenCount ?? 0) || 0;
+  const cachedTokens = Number(
+    u.prompt_tokens_details?.cached_tokens
+    ?? u.input_tokens_details?.cached_tokens
+    ?? u.cachedContentTokenCount
+    ?? u.cache_read_input_tokens
+    ?? 0,
+  ) || 0;
+  if (promptTokens <= 0 && completionTokens <= 0) return null;
+  return { promptTokens, completionTokens, cachedTokens };
+}
+
+function computeTextCostCny(usage, date = new Date()) {
+  const table = isPeakHours(date) ? TEXT_PRICE_CNY_PER_M.peak : TEXT_PRICE_CNY_PER_M.offpeak;
+  const missTokens = Math.max(0, usage.promptTokens - usage.cachedTokens);
+  return (
+    usage.cachedTokens * table.cacheHit
+    + missTokens * table.cacheMiss
+    + usage.completionTokens * table.output
+  ) / 1e6;
+}
+
+/** 记一条用量；失败不影响主流程（记账永远不能把生成/对话搞挂）。 */
+function recordUsage(event) {
+  try {
+    db.prepare(`
+      INSERT INTO usage_events (ts, kind, agent_id, model, provider, protocol, images, prompt_tokens, cached_tokens, completion_tokens, cost_cny, meta_json)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      event.ts || new Date().toISOString(),
+      event.kind,
+      event.agentId || null,
+      event.model || null,
+      event.provider || null,
+      event.protocol || null,
+      Number(event.images || 0),
+      Number(event.promptTokens || 0),
+      Number(event.cachedTokens || 0),
+      Number(event.completionTokens || 0),
+      Number(event.costCny || 0),
+      event.meta ? JSON.stringify(event.meta) : null,
+    );
+  } catch (error) {
+    console.warn('[usage] 记账失败（忽略）:', normalizeError(error));
+  }
+}
+
+/** 从 baseUrl 里取一个短的供应商标识，用于看板分组（不含完整路径/密钥）。 */
+function providerLabelOf(baseUrl) {
+  try {
+    return new URL(String(baseUrl)).host;
+  } catch {
+    return String(baseUrl || '').slice(0, 60) || null;
+  }
+}
+
+/** 流式响应里 usage 只在最后一个 chunk 出现；逐行解析 SSE，不用正则抠 JSON（抠过的都不可靠）。 */
+function extractUsageFromSseTail(text) {
+  if (!text) return null;
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i].trim();
+    if (!line.startsWith('data:')) continue;
+    const payload = line.slice(5).trim();
+    if (!payload || payload === '[DONE]') continue;
+    try {
+      const usage = extractUsage(JSON.parse(payload));
+      if (usage) return usage;
+    } catch { /* 这个 chunk 不是完整 JSON，继续往前找 */ }
+  }
+  // 兜底：Gemini 流式不带 data: 前缀
+  try {
+    return extractUsage(JSON.parse(text));
+  } catch {
+    return null;
+  }
+}
+
+/** 文本/视觉调用的记账入口：usage 认不出就不记，宁可少记也不编数。 */
+function recordTextUsage(usage, body, model, protocol, baseUrl) {
+  if (!usage) return;
+  recordUsage({
+    kind: 'text',
+    agentId: (body && (body.novaAgentId || body.agentId)) || null,
+    model: model || null,
+    provider: providerLabelOf(baseUrl),
+    protocol: protocol || null,
+    promptTokens: usage.promptTokens,
+    cachedTokens: usage.cachedTokens,
+    completionTokens: usage.completionTokens,
+    costCny: computeTextCostCny(usage),
+  });
 }
 
 function sendJson(res, statusCode, body, extraHeaders = {}) {
@@ -1170,6 +1327,7 @@ function createTask(body, req) {
     gptImageStyle: body.gptImageStyle,
     gptImageBackground: body.gptImageBackground,
     parallelCount: body.parallelCount,
+    agentId: body.agentId,
     images: body.images.map(img => ({ mimeType: img.mimeType })),
   };
   const tx = db.transaction(() => {
@@ -2075,6 +2233,17 @@ async function runTaskBody(taskId, task, apiKey) {
     db.prepare(`
       UPDATE tasks SET status = 'completed', result_json = ?, warning = ?, completed_at = ?, expires_at = ? WHERE id = ?
     `).run(JSON.stringify({ images }), warning, completedAt, expiresAt, taskId);
+    // 生图按张计价：成功出几张记几张（失败的那几张不记）
+    recordUsage({
+      kind: 'image',
+      agentId: request.agentId || request.novaAgentId || null,
+      model: request.model || null,
+      provider: providerLabelOf(request.baseUrl),
+      protocol: request.protocol || null,
+      images: images.length,
+      costCny: images.length * IMAGE_UNIT_PRICE_CNY,
+      meta: { mode: request.mode || null, taskId, failed: errors.length },
+    });
   } else {
     db.prepare(`
       UPDATE tasks SET status = 'failed', error = ?, completed_at = ?, expires_at = ? WHERE id = ?
@@ -2907,6 +3076,7 @@ function buildAgentMemoryPayload(agentId, query, sessionId) {
   const libraryRaw = readMemoryFile(agentId, 'library') || '';
   const proposalsRaw = readMemoryFile(agentId, 'proposals') || '';
   const sessionRaw = readSessionState(agentId, sessionId) || '';
+  const recentRaw = readMemoryFile(agentId, 'recent') || '';
 
   const identity = identityRaw.length > MEMORY_LIMITS.identity
     ? { text: identityRaw.slice(0, MEMORY_LIMITS.identity), truncated: true }
@@ -2926,6 +3096,9 @@ function buildAgentMemoryPayload(agentId, query, sessionId) {
     feedbackDropped: feedbackMatch.dropped,
     libraryDropped: libraryMatch.dropped,
     sessionState: sessionRaw,
+    recent: recentRaw.length > MEMORY_LIMITS.recentChars
+      ? recentRaw.slice(-MEMORY_LIMITS.recentChars)
+      : recentRaw,
     proposals: proposalsRaw,
     queryTokenCount: memoryTokens(query).length,
   };
@@ -2933,7 +3106,32 @@ function buildAgentMemoryPayload(agentId, query, sessionId) {
 
 // 追加写入（只追加，永不覆盖整文件）；单进程内用串行队列防并发交叉写
 const memoryWriteChains = new Map();
+
+/**
+ * 「近期记录」是滚动窗口：只保留最近 recentKeep 条。
+ * 它不是复用源——用途是让下一次生成知道「最近用过什么主张/骨架/色族」，避免无意识撞车。
+ * 因此刻意不积累（旧条目自动丢弃），也就不会越用越像。
+ */
+function appendRecentEntry(agentId, text) {
+  const dir = memoryAgentDir(agentId);
+  if (!dir) throw new Error('agent 不存在或 id 非法');
+  const body = String(text || '').trim();
+  const keep = Math.max(1, MEMORY_LIMITS.recentKeep);
+  const target = path.join(dir, MEMORY_FILE_NAMES.recent);
+  const { header, entries } = splitMemoryFile(readMemoryFile(agentId, 'recent') || '');
+  const stamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  entries.push(`- [${stamp}] ${body}`);
+  const trimmed = entries.slice(-keep);
+  writeMemoryFileAtomic(
+    agentId,
+    'recent',
+    composeMemoryFile(header || '# 近期记录（滚动窗口：最近 ' + keep + ' 单）', trimmed, MEMORY_PLACEHOLDERS.recent),
+  );
+  return { ok: true, file: MEMORY_FILE_NAMES.recent, count: trimmed.length, dropped: Math.max(0, entries.length - keep) };
+}
+
 function appendMemoryFile(agentId, kind, text) {
+  if (kind === 'recent') return appendRecentEntry(agentId, text);
   const dir = memoryAgentDir(agentId);
   if (!dir) throw new Error('agent 不存在或 id 非法');
   const fileName = MEMORY_FILE_NAMES[kind];
@@ -2963,7 +3161,7 @@ function writeProposal(agentId, text) {
 const MEMORY_PENDING_FILE = 'pending.json';
 const MEMORY_PENDING_MAX = 200;
 const MEMORY_REJECTED_MAX = 30;
-const MEMORY_NOTE_KINDS = new Set(['feedback', 'library', 'proposal', 'session']);
+const MEMORY_NOTE_KINDS = new Set(['feedback', 'library', 'proposal', 'session', 'recent']);
 
 // ===== 多 Agent（类目）注册表：data/memory/<agent>/ =====
 // 每个类目一个目录，各自的记忆与会话完全隔离，无公共层。
@@ -3243,6 +3441,7 @@ const MEMORY_PLACEHOLDERS = {
   feedback: '（暂无条目）',
   library: '（暂无条目）',
   proposals: '（暂无提议）',
+  recent: '（暂无记录）',
 };
 
 // ===== 规则效力：编号 / 标签 / 复发统计（规则会退役，不然只会越堆越多） =====
@@ -3392,6 +3591,7 @@ function listMemoryEntries(agentId) {
       feedback: read('feedback').entries,
       library: read('library').entries,
       proposals: read('proposals').entries,
+      recent: read('recent').entries,
     },
     sessions,
     rules: memoryRuleStats(agentId),
@@ -3404,6 +3604,8 @@ function listMemoryEntries(agentId) {
       ruleReviseRefs: MEMORY_LIMITS.ruleReviseRefs,
       ruleStaleDays: MEMORY_LIMITS.ruleStaleDays,
       tagWeight: MEMORY_LIMITS.tagWeight,
+      recentKeep: MEMORY_LIMITS.recentKeep,
+      recentChars: MEMORY_LIMITS.recentChars,
     },
   };
 }
@@ -3712,7 +3914,8 @@ async function handleApi(req, res, pathname, searchParams) {
         return true;
       }
       if (req.method === 'POST') {
-        // 写入端点：kind=feedback|library（Agent 可自主追加）/ proposal（规则改动建议）/ session（会话级单状态）
+        // 写入端点：kind=feedback|library|recent（Agent 可自主追加）/ proposal（规则改动建议）/ session（会话级单状态）
+        // recent = 近期记录（滚动窗口，确认后写入，只保留最近 recentKeep 条）
         const body = await readJsonBody(req);
         const kind = String(body.kind || '').trim();
         const sessionId = String(body.session || '').trim();
@@ -3727,12 +3930,12 @@ async function handleApi(req, res, pathname, searchParams) {
             sendJson(res, 200, result);
             return true;
           }
-          if (kind === 'feedback' || kind === 'library') {
+          if (kind === 'feedback' || kind === 'library' || kind === 'recent') {
             const result = await appendMemoryFile(agentId, kind, body.text);
             sendJson(res, 200, result);
             return true;
           }
-          sendJson(res, 400, { error: 'kind 只允许 feedback | library | proposal | session' });
+          sendJson(res, 400, { error: 'kind 只允许 feedback | library | proposal | session | recent' });
         } catch (error) {
           sendJson(res, 400, { error: normalizeError(error) });
         }
@@ -4041,6 +4244,84 @@ async function handleApi(req, res, pathname, searchParams) {
     }
 
     // ===== 文本 AI 代理（流式 + 非流式，多文本协议） =====
+    // ===== 用量与成本看板 =====
+    if (req.method === 'GET' && apiPathname === '/api/nova/usage/summary') {
+      try {
+        const parsed = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+        const days = Math.min(365, Math.max(1, Number(parsed.searchParams.get('days') || '7') || 7));
+        // 起点取「北京时间最早那天的 00:00」，与按日切桶、高峰判定保持同一时区
+        const nowBeijing = new Date(Date.now() + 8 * 3600 * 1000);
+        const sinceMs = Date.UTC(
+          nowBeijing.getUTCFullYear(),
+          nowBeijing.getUTCMonth(),
+          nowBeijing.getUTCDate() - (days - 1),
+        ) - 8 * 3600 * 1000;
+        const rows = db.prepare('SELECT * FROM usage_events WHERE ts >= ? ORDER BY ts ASC')
+          .all(new Date(sinceMs).toISOString());
+
+        const dayKey = iso => new Date(new Date(iso).getTime() + 8 * 3600 * 1000).toISOString().slice(0, 10);
+        const emptyBucket = () => ({
+          images: 0, costCny: 0, promptTokens: 0, cachedTokens: 0, completionTokens: 0,
+          events: 0, imageEvents: 0, textEvents: 0,
+        });
+        const addTo = (bucket, row) => {
+          bucket.images += row.images;
+          bucket.costCny += row.cost_cny;
+          bucket.promptTokens += row.prompt_tokens;
+          bucket.cachedTokens += row.cached_tokens;
+          bucket.completionTokens += row.completion_tokens;
+          bucket.events += 1;
+          if (row.kind === 'image') bucket.imageEvents += 1; else bucket.textEvents += 1;
+        };
+
+        const totals = emptyBucket();
+        const byDayMap = {};
+        const byModelMap = {};
+        const byAgentMap = {};
+        const byKindMap = {};
+        for (const row of rows) {
+          addTo(totals, row);
+          const d = dayKey(row.ts);
+          if (!byDayMap[d]) byDayMap[d] = { day: d, ...emptyBucket() };
+          addTo(byDayMap[d], row);
+          const mk = `${row.kind}:${row.model || '-'}`;
+          if (!byModelMap[mk]) byModelMap[mk] = { kind: row.kind, model: row.model || '-', ...emptyBucket() };
+          addTo(byModelMap[mk], row);
+          const ak = row.agent_id || '(未标注)';
+          if (!byAgentMap[ak]) byAgentMap[ak] = { agentId: ak, ...emptyBucket() };
+          addTo(byAgentMap[ak], row);
+          if (!byKindMap[row.kind]) byKindMap[row.kind] = { kind: row.kind, ...emptyBucket() };
+          addTo(byKindMap[row.kind], row);
+        }
+
+        // 补齐没有用量的日期，图表不出现空洞
+        const dayList = [];
+        for (let i = days - 1; i >= 0; i -= 1) {
+          const d = dayKey(new Date(Date.now() - i * 86400000).toISOString());
+          dayList.push(byDayMap[d] || { day: d, ...emptyBucket() });
+        }
+
+        sendJson(res, 200, {
+          generatedAt: new Date().toISOString(),
+          days,
+          isPeakNow: isPeakHours(),
+          priceTable: {
+            imageUnitCny: IMAGE_UNIT_PRICE_CNY,
+            textCnyPerMillion: TEXT_PRICE_CNY_PER_M,
+            peakWindows: ['周一至周五 09:00-12:00', '周一至周五 14:00-18:00'],
+          },
+          totals,
+          byDay: dayList,
+          byModel: Object.values(byModelMap).sort((a, b) => b.costCny - a.costCny),
+          byAgent: Object.values(byAgentMap).sort((a, b) => b.costCny - a.costCny),
+          byKind: Object.values(byKindMap),
+        });
+      } catch (error) {
+        sendJson(res, 500, { error: normalizeError(error) });
+      }
+      return true;
+    }
+
     if (req.method === 'POST' && apiPathname === '/api/nova/proxy/text') {
       try {
         const body = await readJsonBody(req);
@@ -4092,6 +4373,9 @@ async function handleApi(req, res, pathname, searchParams) {
           delete clean.model;
           delete clean.stream;
           delete clean.requestBody;
+          // 本地字段不能漏给上游：严格的上游会因未知字段报 400
+          delete clean.novaAgentId;
+          delete clean.agentId;
           forwardedBody = clean;
         }
 
@@ -4109,13 +4393,22 @@ async function handleApi(req, res, pathname, searchParams) {
             'X-Accel-Buffering': 'no',
           });
           const reader = upstream.body.getReader();
+          const decoder = new TextDecoder();
+          let usageTail = '';
           try {
             while (true) {
               const { done, value } = await reader.read();
-              if (done) { res.end(); return true; }
+              if (done) {
+                // usage 只在最后一个 chunk 出现：只留一段尾巴供解析，不缓存全量流
+                recordTextUsage(extractUsageFromSseTail(usageTail), body, model, protocol, normalizedBaseUrl);
+                res.end();
+                return true;
+              }
+              usageTail = (usageTail + decoder.decode(value, { stream: true })).slice(-8192);
               res.write(value);
             }
           } catch {
+            recordTextUsage(extractUsageFromSseTail(usageTail), body, model, protocol, normalizedBaseUrl);
             res.end();
           }
           return true;
@@ -4123,6 +4416,7 @@ async function handleApi(req, res, pathname, searchParams) {
 
         let data = null;
         try { data = await upstream.json(); } catch { /* ignore */ }
+        recordTextUsage(extractUsage(data), body, model, protocol, normalizedBaseUrl);
         sendJson(res, upstream.status, data || { error: `上游返回 ${upstream.status}` });
       } catch (error) {
         if (error && error.message && /abort|timeout/i.test(error.message)) {

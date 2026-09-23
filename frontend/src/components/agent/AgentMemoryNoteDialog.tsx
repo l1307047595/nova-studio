@@ -12,6 +12,7 @@ const KIND_OPTIONS: Array<{ value: MemoryNoteKind; label: string; hint: string }
   { value: 'feedback', label: '纠错', hint: '我纠正过的点，下次别犯（追加进 feedback.md）' },
   { value: 'library', label: '案例 / 色板', hint: '通过版要点、可复用基调句、新试的色板（追加进 library.md）' },
   { value: 'proposal', label: '规则建议', hint: '建议改类目规则（违禁词 / 写法 / 基础色板），只提议、待你确认' },
+  { value: 'recent', label: '近期记录', hint: '这一单用的主张 / 骨架机位 / 色族 —— 只作记性（避免下次撞车），窗口保留最近几单' },
 ];
 
 /**

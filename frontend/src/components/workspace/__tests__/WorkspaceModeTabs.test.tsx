@@ -19,6 +19,7 @@ describe('WorkspaceModeTabs', () => {
     expect(screen.getByRole('tab', { name: /我的素材/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /反推提示词/i })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: /动图生成/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /用量看板/i })).toBeInTheDocument();
     expect(screen.queryByRole('tab', { name: /提示词广场/i })).toBeNull();
 
     // Rerender with prompt gallery
@@ -131,7 +132,8 @@ describe('WorkspaceModeTabs', () => {
 
     const tabsList = container.querySelector('[data-slot="tabs-list"]');
     expect(tabsList?.className).toContain('sm:grid');
-    expect(tabsList?.className).toContain('sm:grid-cols-8');
+    // 默认 9 个 Tab（含「用量看板」）；开提示词广场时是 10 个，见 gridCols
+    expect(tabsList?.className).toContain('sm:grid-cols-9');
 
     HTMLElement.prototype.getBoundingClientRect = originalGetBoundingClientRect;
   });

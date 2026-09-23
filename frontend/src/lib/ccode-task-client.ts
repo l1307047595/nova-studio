@@ -13,6 +13,7 @@ import {
   normalizeTextModelBaseUrl,
 } from '@/lib/model-endpoints';
 import type { TextProviderProtocol } from '@/lib/nova-text-protocol';
+import { getCurrentAgentId } from '@/lib/nova-agents';
 
 export interface ImageReference {
   data: string;
@@ -49,6 +50,8 @@ export interface CreateNovaTaskInput {
   gptImageBackground?: GptImageBackground;
   parallelCount: number;
   images: ImageReference[];
+  /** 当前工作类目：看板的「按工作类目」统计要用（后端 requestForDb 是白名单，必须显式带） */
+  agentId?: string;
 }
 
 export interface NovaTaskResponse {
@@ -192,7 +195,8 @@ export async function createNovaTask(input: CreateNovaTaskInput): Promise<string
   const response = await fetchWithTimeout('/api/nova/tasks', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
+    // 带上当前工作类目，看板按类目统计才有数据；调用方显式传的优先
+    body: JSON.stringify({ ...input, agentId: input.agentId || getCurrentAgentId() }),
   }, CREATE_TASK_TIMEOUT);
   const data = await parseTaskResponse<CreateTaskResponse>(response);
   if (!data?.taskId) throw new Error('创建任务失败：后端未返回任务 ID');

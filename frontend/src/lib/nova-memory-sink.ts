@@ -58,6 +58,8 @@ export interface MemorySinkResult {
   feedback: number;
   library: number;
   proposals: number;
+  /** 入队的「近期记录」条数 */
+  recent: number;
   sessionWritten: boolean;
   /** 全部进待确认队列的条数（会话状态自动写入时不计入） */
   queued: number;
@@ -130,7 +132,14 @@ function looksLikeRawEnglish(text: string): boolean {
   return !/^Consistent style:/i.test(text.trim());
 }
 /** 是否是一条可写的草稿（传入前先过 normalizeDraftTags） */
-export function isUsableDraft(kind: 'feedback' | 'library' | 'proposal' | 'session', rawText: string): boolean {
+export function isUsableDraft(kind: 'feedback' | 'library' | 'proposal' | 'session' | 'recent', rawText: string): boolean {
+  // 近期记录是「记性」不是「经验」：不要求标签，但必须是字段式一句话（主张/骨架机位/色族）
+  if (kind === 'recent') {
+    const line = String(rawText || '').replace(/\s+/g, ' ').trim();
+    if (line.length < 12 || line.length > 260) return false;
+    if (DRAFT_BANNED.some(re => re.test(line))) return false;
+    return /主张\s*=|骨架|机位|色族/.test(line);
+  }
   const text = String(rawText || '').replace(/\s+/g, ' ').trim();
   if (text.length < 8) return false;
   if (kind !== 'proposal' && kind !== 'session' && text.length > 160) return false;  // 「一句话」不该这么长
@@ -168,13 +177,14 @@ export function dedupeDrafts(items: string[], existing: string[] = []): string[]
 
 const SINK_INSTRUCTION = `你是商品图工作流的记忆沉淀器。下面是刚结束（或已空闲）的一段创作对话记录。
 只输出一个 JSON，不要任何解释、前后缀、代码块标记：
-{"feedback":["..."],"library":["..."],"proposals":["..."],"session":"..."}
+{"feedback":["..."],"library":["..."],"proposals":["..."],"session":"...","recent":"..."}
 
 字段含义：
 - feedback：用户明确纠正过的点，或出图出过的硬伤。
 - library：本次通过的方案要点，或新试出来的、可复用的取值。
 - proposals：只有当出现「该改类目规则」的信号时才写（同一条纠错反复出现、某套色板/图型被验证稳定该升级进基础规则、违禁词或写法需要调整）。你只能提议，不能改规则本身。
 - session：**必填，不能为空**（这一单做到哪一步）。
+- recent：**近期记录**，只在这一单确实定了套图方向时写，格式固定一行：「主张=… | 骨架机位=… | 色族=…」（各 ≤20 字，不写提示词正文、不写画面细节）；没定方向就写空字符串。它只是「记性」，用来让下一次不撞车。
 
 ${WRITE_RULES}
 
@@ -187,7 +197,7 @@ function buildSessionFallback(lastUserMessage: string): string {
   return `本轮进展（自动兜底）：${text.slice(0, 80)}`;
 }
 
-function parseSinkJson(text: string): { feedback: string[]; library: string[]; proposals: string[]; session: string } | null {
+function parseSinkJson(text: string): { feedback: string[]; library: string[]; proposals: string[]; session: string; recent: string } | null {
   const cleaned = String(text || '')
     .replace(/^\s*```(?:json)?/i, '')
     .replace(/```\s*$/, '')
@@ -197,7 +207,7 @@ function parseSinkJson(text: string): { feedback: string[]; library: string[]; p
   if (start < 0 || end <= start) return null;
   try {
     const parsed = JSON.parse(cleaned.slice(start, end + 1)) as {
-      feedback?: unknown; library?: unknown; proposals?: unknown; session?: unknown;
+      feedback?: unknown; library?: unknown; proposals?: unknown; session?: unknown; recent?: unknown;
     };
     const toStringArray = (value: unknown): string[] =>
       Array.isArray(value) ? value.map(item => String(item || '').trim()).filter(Boolean).slice(0, 5) : [];
@@ -206,6 +216,7 @@ function parseSinkJson(text: string): { feedback: string[]; library: string[]; p
       library: toStringArray(parsed.library),
       proposals: toStringArray(parsed.proposals),
       session: typeof parsed.session === 'string' ? parsed.session.trim() : '',
+      recent: typeof parsed.recent === 'string' ? parsed.recent.trim() : '',
     };
   } catch {
     return null;
@@ -215,7 +226,7 @@ function parseSinkJson(text: string): { feedback: string[]; library: string[]; p
 export async function sinkAgentMemory(input: MemorySinkInput): Promise<MemorySinkResult> {
   const transcript = String(input.transcript || '').trim();
   const fail = (error: string): MemorySinkResult =>
-    ({ ok: false, feedback: 0, library: 0, proposals: 0, sessionWritten: false, queued: 0, error });
+    ({ ok: false, feedback: 0, library: 0, proposals: 0, recent: 0, sessionWritten: false, queued: 0, error });
   if (!transcript) return fail('没有可沉淀的内容');
 
   const rejected = (input.rejectedTexts || []).map(item => String(item || '').trim()).filter(Boolean).slice(-10);
@@ -268,7 +279,7 @@ export async function sinkAgentMemory(input: MemorySinkInput): Promise<MemorySin
     }
 
     let filtered = 0;
-    const clean = (kind: 'feedback' | 'library' | 'proposal' | 'session', items: string[]): string[] => {
+    const clean = (kind: 'feedback' | 'library' | 'proposal' | 'session' | 'recent', items: string[]): string[] => {
       const usable = items
         .map(item => normalizeDraftTags(item))                     // 先把「维度:值」标签转成 #标签
         .filter(item => {
@@ -300,6 +311,13 @@ export async function sinkAgentMemory(input: MemorySinkInput): Promise<MemorySin
       const result = await queueMemoryDraft('proposal', item, { source: 'heartbeat', session: input.sessionId });
       if (result.ok) { proposalCount += 1; queued += 1; }
     }
+    // 近期记录：进待确认队列（你不确认就不落盘）；确认后写进滚动窗口，旧条目自动丢弃
+    let recentCount = 0;
+    for (const item of clean('recent', parsed.recent ? [parsed.recent] : [])) {
+      const result = await queueMemoryDraft('recent', item, { source: 'heartbeat', session: input.sessionId });
+      if (result.ok) { recentCount += 1; queued += 1; }
+    }
+
     // 会话状态：默认也要你确认（进队列）；开了「自动写入」才直接落盘
     const rawSession = parsed.session || buildSessionFallback(input.lastUserMessage || '');
     const sessionText = rawSession && isUsableDraft('session', rawSession) ? rawSession : '';
@@ -315,7 +333,7 @@ export async function sinkAgentMemory(input: MemorySinkInput): Promise<MemorySin
     }
     return {
       ok: true, feedback: feedbackCount, library: libraryCount,
-      proposals: proposalCount, sessionWritten, queued, filtered,
+      proposals: proposalCount, recent: recentCount, sessionWritten, queued, filtered,
     };
   } catch (error) {
     return fail(error instanceof Error ? error.message : '沉淀失败');
@@ -342,9 +360,10 @@ const DRAFT_INSTRUCTION = `你是商品图工作流的记忆提炼器。下面�
 请从对话里提炼出**一条**最值得记住的记忆，只输出一个 JSON，不要解释、不要代码块：
 {"kind":"feedback","text":"..."}
 
-kind 只能是这三种之一：
+kind 只能是这四种之一：
 - feedback：用户明确纠正过的点，或出图出过的硬伤。
 - library：本次通过的方案要点，或新试出来的、可复用的取值。
+- recent：**近期记录** —— 这一单定下的套图方向，格式固定一行「主张=… | 骨架机位=… | 色族=…」（各 ≤20 字，不写提示词正文与画面细节）。只是「记性」，用来让下一单不撞车。
 - proposal：该改类目规则的信号（同一条纠错反复出现、某色板/图型已验证稳定该升级进基础规则、违禁词或写法要调整）。
 
 ${WRITE_RULES}
@@ -358,13 +377,13 @@ export interface DraftMemoryNoteInput {
   baseUrl: string;
   transcript: string;
   /** 用户当前选中的类型，作为倾向（模型可以改） */
-  preferredKind?: 'feedback' | 'library' | 'proposal';
+  preferredKind?: 'feedback' | 'library' | 'proposal' | 'recent';
 }
 
 /** 让模型从对话里起草一条记忆，交给用户审。失败返回 null。 */
 export async function draftMemoryNote(
   input: DraftMemoryNoteInput,
-): Promise<{ kind: 'feedback' | 'library' | 'proposal'; text: string } | null> {
+): Promise<{ kind: 'feedback' | 'library' | 'proposal' | 'recent'; text: string } | null> {
   const transcript = String(input.transcript || '').trim();
   if (!transcript) return null;
   const hint = input.preferredKind ? `\n\n（用户当前选的是 ${input.preferredKind}，如果对话内容更适合别的类型，就改成更合适的那个）` : '';
@@ -400,7 +419,9 @@ export async function draftMemoryNote(
     const parsed = JSON.parse(cleaned.slice(start, end + 1)) as { kind?: unknown; text?: unknown };
     const noteText = typeof parsed.text === 'string' ? normalizeDraftTags(parsed.text) : '';
     if (!noteText) return null;
-    const kind = parsed.kind === 'library' || parsed.kind === 'proposal' ? parsed.kind : 'feedback';
+    const kind = parsed.kind === 'library' || parsed.kind === 'proposal' || parsed.kind === 'recent'
+      ? parsed.kind
+      : 'feedback';
     // 同一条写入判据：不合格就不给用户看（宁缺勿滥，别让脏草稿污染审核队列）
     if (!isUsableDraft(kind, noteText)) return null;
     return { kind, text: noteText };

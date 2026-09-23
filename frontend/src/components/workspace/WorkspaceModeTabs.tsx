@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Bot, Film, Frame, Images, LibraryBig, ScanSearch, Scissors, Sparkles, Video } from 'lucide-react';
+import { Bot, Film, Frame, Images, LibraryBig, ScanSearch, Scissors, Sparkles, Video, BarChart3 } from 'lucide-react';
 import { TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 
@@ -20,12 +20,13 @@ const tabs = [
   { value: 'assets', icon: Images, label: '我的素材' },
   { value: 'reverse-prompt', icon: ScanSearch, label: '反推提示词' },
   { value: 'gif', icon: Film, label: '动图生成' },
+  { value: 'usage', icon: BarChart3, label: '用量看板' },
 ] as const;
 
 const galleryTab = { value: 'prompt-gallery', icon: LibraryBig, label: '提示词广场' } as const;
 
 export function WorkspaceModeTabs({ wideMode = false, showPromptGallery = false }: WorkspaceModeTabsProps) {
-  const gridCols = showPromptGallery ? 'sm:grid-cols-9' : 'sm:grid-cols-8';
+  const gridCols = showPromptGallery ? 'sm:grid-cols-10' : 'sm:grid-cols-9';
   const allTabs = showPromptGallery ? [...tabs, galleryTab] : tabs;
   const containerRef = useRef<HTMLDivElement>(null);
   const measureRef = useRef<HTMLDivElement>(null);
