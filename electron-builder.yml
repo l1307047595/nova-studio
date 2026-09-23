@@ -36,6 +36,11 @@ extraResources:
     to: memory-seed
     filter:
       - '**/*'
+  # 更新身份规则.ps1 —— 随包附带：已装机器更新后，跑它把新版 identity.md 覆盖到活记忆
+  # （只换 identity.md，纠错/案例/近期记录不动，旧文件自动备份）。
+  # 发版说明（tools/release-notes-*.txt）里承诺了这个文件，必须真的发出去。
+  - from: tools/更新身份规则.ps1
+    to: 更新身份规则.ps1
 # 自动更新源：GitHub Releases（仓库只放发布产物，不放源码）。
 # 两个版本共用同一仓库、靠 channel 分开：HK 版 → latest-hk.yml，L 版 → latest-l.yml。
 # 打包时用 -c.publish.channel=hk / l 指定；--publish never 表示只构建、不上传（上传走 publish-release.sh）。
