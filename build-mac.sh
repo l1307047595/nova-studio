@@ -18,8 +18,8 @@ cd "$(dirname "$0")"
 
 VARIANT="${1:-l}"
 case "$VARIANT" in
-  l)  PRODUCT="Nova Studio L";  APPID="com.novaimage.studio.l";  CHANNEL="l"; SEED="build-seeds/general" ;;
-  hk) PRODUCT="Nova Studio HK"; APPID="com.novaimage.studio.hk"; CHANNEL="hk"; SEED="build-seeds/full" ;;
+  l)  PRODUCT="Nova Studio L";  NAME="Nova-Studio-L";  APPID="com.novaimage.studio.l";  CHANNEL="l"; SEED="build-seeds/general" ;;
+  hk) PRODUCT="Nova Studio HK"; NAME="Nova-Studio-HK"; APPID="com.novaimage.studio.hk"; CHANNEL="hk"; SEED="build-seeds/full" ;;
   *)  echo "用法: bash build-mac.sh [l|hk]"; exit 2 ;;
 esac
 
@@ -64,8 +64,8 @@ CSC_IDENTITY_AUTO_DISCOVERY=false npm run electron:dist:mac -- --publish never -
   -c.appId="$APPID" \
   -c.publish.channel="$CHANNEL" \
   -c.mac.icon=build/icon.icns \
-  -c.artifactName="$PRODUCT-\${version}-mac-\${arch}.\${ext}" \
-  -c.mac.artifactName="$PRODUCT-\${version}-mac-\${arch}.\${ext}"
+  -c.artifactName="${NAME}-\${version}-mac-\${arch}.\${ext}" \
+  -c.mac.artifactName="${NAME}-\${version}-mac-\${arch}.\${ext}"
 
 echo
 echo "== 产物 =="
