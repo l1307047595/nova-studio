@@ -24,6 +24,9 @@ import {
 } from '@/lib/agent-sessions';
 import { DEFAULT_AGENT_ID, createAgent, fetchAgents, type NovaAgent } from '@/lib/nova-agents';
 import { cn } from '@/lib/utils';
+import { carryOverMaterialImages } from '@/lib/agent-material-carryover';
+import { putMessage } from '@/lib/agent-context-store';
+import { generateUUID } from '@/lib/uuid';
 
 export interface SessionSwitcherProps {
   activeSessionId: string;
@@ -162,6 +165,23 @@ export function SessionSwitcher({ activeSessionId, onSessionChange, agentId = DE
         refreshSessions();
         setNameDialog(null);
         setMobileOpenState(false);
+        /*
+         * 新会话默认是空目录 → 铁律「没有参考图就不出图」会让之后每个提案都被拦下
+         * （用户看到「生成失败」）。所以把上一个会话的商品素材图带过来，并留一条说明。
+         */
+        try {
+          const carried = await carryOverMaterialImages(activeSessionId, session.id);
+          if (carried.copied > 0) {
+            await putMessage({
+              id: generateUUID(),
+              role: 'system-note',
+              text: `已从上一个会话带入 ${carried.copied} 张商品素材图（${carried.imgIds.join('、')}），可直接引用。`,
+              createdAt: Date.now(),
+            }, session.id);
+          }
+        } catch {
+          // 带图失败不阻塞新建会话
+        }
         await onSessionChange(session.id);
       } else {
         renameAgentSession(nameDialog.session.id, name);

@@ -252,10 +252,17 @@ function sliceActiveContext(
   }
   if (dividerIndex === -1) return { history, catalog };
 
-  const dividerAt = history[dividerIndex].createdAt;
+  /*
+   * 只切历史，**不切图片目录**。
+   *
+   * 「清理上下文 / 新对话」的语义是「助手不记得上文」，但用户上传的商品参考图是**素材**，
+   * 不是对话内容：被一起切掉的话，铁律（没有参考图就不出图）会让接下来的每一个提案
+   * 都被拦下 —— 用户看到的是「明明会话里有 8 张图，却说我没有参考图」。
+   * 目录只注入图片 id 与文字描述，体量很小，保留它不会明显增加上下文。
+   */
   return {
     history: history.slice(dividerIndex + 1),
-    catalog: catalog.filter(img => img.createdAt > dividerAt),
+    catalog,
   };
 }
 
