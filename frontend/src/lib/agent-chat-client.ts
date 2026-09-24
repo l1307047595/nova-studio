@@ -33,7 +33,14 @@ import { formatMemoryBlock } from '@/lib/nova-memory';
 
 const AGENT_GPT_REQUEST_MAX_ATTEMPTS = 3;
 const AGENT_CHAT_ATTEMPT_TIMEOUT_MS = 45_000;
-const AGENT_IMAGE_DESCRIBE_ATTEMPT_TIMEOUT_MS = 20_000;
+/*
+ * describe 的单次超时。
+ * 原来写 20s：那是按非推理模型估的。实测用户的 deepseek-v4.1-flash（opencode zen）
+ * 是推理模型，描述一张按上传规格压缩的商品图要 20.1~22.4 秒（先吐 2600~3500 字
+ * reasoning），每次都超时 → 重试 3 次仍失败 → 描述变「(图片描述生成失败)」。
+ * 提到 60s 留出余量（实测样本 20.1~28.2s，缩图不降耗时，只有放宽上限才解决）。
+ */
+const AGENT_IMAGE_DESCRIBE_ATTEMPT_TIMEOUT_MS = 60_000;
 // 自检要同时看 2~4 张图，比单张描述慢，超时给宽一点
 const AGENT_SELF_CHECK_ATTEMPT_TIMEOUT_MS = 90_000;
 

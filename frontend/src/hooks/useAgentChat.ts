@@ -19,6 +19,7 @@ import {
   getImageModelById,
   loadRegistry,
 } from '@/lib/nova-models';
+import { downscaleDataUrlForDescribe } from '@/lib/image-downscale';
 import {
   streamAgentChat,
   describeImage,
@@ -892,11 +893,14 @@ export function useAgentChat(sessionId = 'default') {
     const runDescribe = async (): Promise<string> => {
       try {
         const configured = getAgentTextModelConfig();
+        // 缩到 1024：省带宽 / 省视觉 token / 降低 413 风险。注意实测**不降耗时**
+        // （耗时由推理长度主导），超时问题由 60s 上限解决 —— 见 image-downscale 注释
+        const describeUrl = await downscaleDataUrlForDescribe(previewDataUrl);
         const description = await describeImage(
           configured.apiKey,
           configured.modelId,
           configured.protocol,
-          previewDataUrl,
+          describeUrl,
           describeSignal,
           configured.baseUrl,
         );
@@ -905,6 +909,8 @@ export function useAgentChat(sessionId = 'default') {
       } catch (error) {
         if (!isSessionCurrent(sessionGeneration)) throw error;
         if (describeSignal?.aborted) return '(无描述)';
+        // 不再静默吞错：把真实原因打到控制台，否则用户只看到「描述生成失败」无从判断
+        console.warn(`[nova] ${imgId} 图片描述失败：`, error instanceof Error ? error.message : error);
         return '(图片描述生成失败)';
       }
     };
@@ -1078,11 +1084,13 @@ export function useAgentChat(sessionId = 'default') {
     const record = images.find(img => img.imgId === imgId);
     if (!record) throw new Error(`图片 ${imgId} 不存在`);
     const configured = getAgentTextModelConfig();
+    // 与首次描述同一条路径：缩到 1024 再交给模型（见 image-downscale 的说明）
+    const describeUrl = await downscaleDataUrlForDescribe(record.thumbnail);
     const newDescription = await describeImage(
       configured.apiKey,
       configured.modelId,
       configured.protocol,
-      record.thumbnail,
+      describeUrl,
       undefined,
       configured.baseUrl,
     );

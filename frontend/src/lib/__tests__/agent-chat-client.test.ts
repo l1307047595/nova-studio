@@ -1153,7 +1153,8 @@ describe('describeImage timeout', () => {
     vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
     const pending = describeImage('k', 'm', 'openai-chat-completions', 'data:image/png;base64,xx');
     const expectation = expect(pending).rejects.toThrow(/超过/);
-    await vi.advanceTimersByTimeAsync(61_000);
+    // 单次超时 60s × 最多 3 次尝试 = 180s，多推 1s 余量
+    await vi.advanceTimersByTimeAsync(181_000);
     await expectation;
     vi.useRealTimers();
   });
