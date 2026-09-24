@@ -48,6 +48,7 @@ export function AgentMemoryPendingPanel({
   useBodyScrollLock();
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 打开面板时读一次本地开关状态（外部存储）
     if (open) setSessionAuto(isSessionAutoWriteEnabled());
   }, [open]);
 

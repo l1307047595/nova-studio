@@ -86,10 +86,15 @@ function baseInput(protocol: TextProviderProtocol, extra?: Partial<StreamAgentIn
   };
 }
 
+/** 直接取 onDone 的形参类型：测试别再自己写窄类型。
+ *  之前写成 { prompt?: string }，把 requestedAspectRatio / productKey / referencedImageIds
+ *  这些真实字段全挡在类型外（单测绿、tsc 红，还掩盖未来真正的类型错误）。 */
+type OnDoneArgs = Parameters<NonNullable<StreamAgentCallbacks['onDone']>>;
+
 interface Collected {
   deltas: string[];
   toolActivity: string[];
-  done: { text: string; proposal: { prompt?: string } | null; proposals?: Array<{ prompt?: string }> } | null;
+  done: { text: OnDoneArgs[0]; proposal: OnDoneArgs[1]; proposals: OnDoneArgs[2] } | null;
   error: Error | null;
 }
 

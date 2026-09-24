@@ -15,9 +15,11 @@ import {
   type ImageModelConfig,
 } from '@/lib/nova-models';
 
-function registered(presetId: keyof typeof BUILTIN_IMAGE_PRESETS, id = presetId): ImageModelConfig {
+function registered(presetId: keyof typeof BUILTIN_IMAGE_PRESETS, id: string = presetId): ImageModelConfig {
   return {
     ...BUILTIN_IMAGE_PRESETS[presetId],
+    // builtinPreset 必填；用例里要模拟「id 与预设不一致」的错标场景，所以显式传 presetId
+    builtinPreset: presetId,
     id,
     apiKey: 'test-key',
   };

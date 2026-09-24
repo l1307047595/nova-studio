@@ -58,6 +58,7 @@ export function AgentMemoryNoteDialog({
 
   useEffect(() => {
     if (!open) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 打开时重置草稿并拉一次 AI 提炼，属一次性同步
     setText('');
     setDraftError('');
     void runDraft('feedback');

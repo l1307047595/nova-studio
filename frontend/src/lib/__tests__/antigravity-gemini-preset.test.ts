@@ -1,14 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react';
-import { createElement } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { GenerationParamsBar } from '@/components/GenerationParamsBar';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   getAspectRatioOptions,
   getCustomSizeMaxSide,
   getSupportsTemperature,
   getValidOutputSizes,
   isRetryLayoutCompatible,
-  PARALLEL_COUNT_VALUES,
   supportsCustomSize,
 } from '@/lib/model-capabilities';
 import {
@@ -62,6 +58,8 @@ describe('Antigravity Gemini builtin preset', () => {
   it('does not enable custom size even when the openai 4K preset is registered', () => {
     const config: ImageModelConfig = {
       ...BUILTIN_IMAGE_PRESETS['antigravity-gemini-image'],
+      // builtinPreset 是 ImageModelConfig 的必填项，预设表里没有（由注册表构建时补）
+      builtinPreset: 'antigravity-gemini-image',
       id: 'antigravity-gemini-image',
       apiKey: 'test-key',
     };

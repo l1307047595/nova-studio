@@ -45,7 +45,7 @@ import { AgentMemoryNoteDialog, type MemoryNoteKind } from '@/components/agent/A
 import { AgentMemoryPendingPanel } from '@/components/agent/AgentMemoryPendingPanel';
 import { AgentMemoryViewerPanel } from '@/components/agent/AgentMemoryViewerPanel';
 import { cn } from '@/lib/utils';
-import { renderReasoning, renderMarkdown } from '@/lib/render-reasoning';
+import { renderMarkdown } from '@/lib/render-reasoning';
 import { handleMarkdownCodeCopyButtonClick } from '@/lib/markdown-code-copy';
 import { generateUUID } from '@/lib/uuid';
 import { prepareUploadImage, getOptimizationBadge } from '@/lib/upload-image-cache';

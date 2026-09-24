@@ -4,9 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Bot,
-  Brain,
   Check,
-  ChevronDown,
   Copy,
   FileText,
   Pencil,

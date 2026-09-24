@@ -26,7 +26,6 @@ import {
   getOutputSizeLabel,
   getSizeOptions,
   getSupportsTemperature,
-  getValidOutputSizes,
   getGptImageAdvancedParamsForModel,
   normalizeCustomImageSize,
   resolveAgentLayout,

@@ -85,7 +85,9 @@ export function PluginHistoryList({
   const [clearDialogOpen, setClearDialogOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  // 只留 setter：下载中的 id 曾经传给 JobCard，但卡片侧从未使用（死 prop）。
+  // 保留 setState 的语义（会触发重渲染），不改变行为。
+  const [, setDownloadingId] = useState<string | null>(null);
   const [previewJob, setPreviewJob] = useState<PluginJob | null>(null);
   const [expiredJob, setExpiredJob] = useState<PluginJob | null>(null);
   const [probingId, setProbingId] = useState<string | null>(null);
@@ -403,7 +405,6 @@ export function PluginHistoryList({
                   job={job}
                   copiedId={copiedId}
                   copiedPromptId={copiedPromptId}
-                  downloadingId={downloadingId}
                   probingId={probingId}
                   onCopyLink={url => void handleCopy(url, setCopiedId, job.id, '链接')}
                   onCopyPrompt={() => void handleCopy(job.prompt, setCopiedPromptId, job.id, '提示词')}
@@ -432,7 +433,9 @@ export function PluginHistoryList({
             // 所有已完成的可预览视频
             const previewableJobs = jobs.filter(j => j.status === 'completed' && primaryAsset(j)?.url);
             const currentJob = previewableJobs[previewIndex] ?? previewJob;
-            const leftVideo = primaryAsset(currentJob)?.url!;
+            // 不用 `?.url!`（可选链 + 非空断言不安全）：取不到就给空串，
+            // 外层条件已保证 previewJob 有 url，这里是兜底。
+            const leftVideo = primaryAsset(currentJob)?.url ?? '';
             const rightVideo = previewMode === 'split' && splitIndex !== null
               ? primaryAsset(previewableJobs[splitIndex] ?? previewJob)?.url
               : null;
@@ -663,7 +666,6 @@ interface JobCardProps {
   job: PluginJob;
   copiedId: string | null;
   copiedPromptId: string | null;
-  downloadingId: string | null;
   probingId: string | null;
   onCopyLink: (url: string) => void;
   onCopyPrompt: () => void;
@@ -681,7 +683,6 @@ function JobCard({
   job,
   copiedId,
   copiedPromptId,
-  downloadingId,
   probingId,
   onCopyLink,
   onCopyPrompt,

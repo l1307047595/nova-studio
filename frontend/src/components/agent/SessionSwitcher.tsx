@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { Boxes, MessageSquare, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -38,7 +38,18 @@ export interface SessionSwitcherProps {
 type NameDialogState = { mode: 'create' } | { mode: 'rename'; session: AgentSession } | null;
 
 export function SessionSwitcher({ activeSessionId, onSessionChange, agentId = DEFAULT_AGENT_ID, onAgentChange, mobileOpen, onMobileOpenChange }: SessionSwitcherProps) {
-  const [sessions, setSessions] = useState<AgentSession[]>(() => listAgentSessionsForAgent(agentId));
+  /*
+   * 会话列表直接从本地存储派生（useMemo + 版本号），不再用 state + effect 同步。
+   * 之前 agentId 一变就在 effect 里 setState，会多一次级联渲染
+   * （react-hooks/set-state-in-effect）；这里读的是同步存储，派生即可。
+   * 增删改名之后调 refreshSessions() 递增版本号，效果与原 setSessions 等价。
+   */
+  const [sessionsVersion, setSessionsVersion] = useState(0);
+  const sessions = useMemo(() => {
+    // sessionsVersion 只用于「强制重算」：增删改名后递增它，让这里重新读一次存储。
+    void sessionsVersion;
+    return listAgentSessionsForAgent(agentId);
+  }, [agentId, sessionsVersion]);
   const [agents, setAgents] = useState<NovaAgent[]>([]);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentDialogOpen, setAgentDialogOpen] = useState(false);
@@ -53,20 +64,15 @@ export function SessionSwitcher({ activeSessionId, onSessionChange, agentId = DE
   const [internalMobileOpen, setInternalMobileOpen] = useState(false);
 
   const isMobileOpen = mobileOpen !== undefined ? mobileOpen : internalMobileOpen;
-  const setMobileOpenState = (open: boolean) => {
+  // useCallback：这个 setter 被下面的 keydown effect 依赖，每次渲染换身份会让 effect 反复重挂
+  const setMobileOpenState = useCallback((open: boolean) => {
     if (onMobileOpenChange) onMobileOpenChange(open);
     else setInternalMobileOpen(open);
-  };
+  }, [onMobileOpenChange]);
 
-  const activeSession = sessions.find(s => s.id === activeSessionId);
   const defaultSessionId = defaultSessionIdForAgent(agentId);
   const agentOptions: NovaAgent[] = agents.length > 0 ? agents : [{ id: agentId, name: agentId }];
   const currentAgentName = agentOptions.find(a => a.id === agentId)?.name || agentId;
-
-  // 切类目后重新拉该类的会话列表
-  useEffect(() => {
-    setSessions(listAgentSessionsForAgent(agentId));
-  }, [agentId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,9 +91,9 @@ export function SessionSwitcher({ activeSessionId, onSessionChange, agentId = DE
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isMobileOpen]);
+  }, [isMobileOpen, setMobileOpenState]);
 
-  const refreshSessions = () => setSessions(listAgentSessionsForAgent(agentId));
+  const refreshSessions = () => setSessionsVersion(version => version + 1);
 
   /** 切换工作类目（记忆与会话整体切走，由父层重挂载工作区） */
   const handleAgentSelect = async (nextAgentId: string) => {

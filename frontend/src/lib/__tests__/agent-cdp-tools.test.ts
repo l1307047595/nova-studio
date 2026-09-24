@@ -39,8 +39,7 @@ import {
   listCdpTargets,
   openBrowserTab,
   purgeCdpProductImages as requestPurgeCdpProductImages,
-  readBrowserPage,
-  setCdpPort,
+  readBrowserPage,
 } from '@/lib/cdp-client';
 
 const mockedListTargets = vi.mocked(listCdpTargets);
@@ -48,7 +47,6 @@ const mockedOpenTab = vi.mocked(openBrowserTab);
 const mockedReadPage = vi.mocked(readBrowserPage);
 const mockedExtract = vi.mocked(extractTaobaoProduct);
 const mockedGetStatus = vi.mocked(getCdpStatus);
-const mockedSetPort = vi.mocked(setCdpPort);
 const mockedLaunch = vi.mocked(launchDebugBrowser);
 const mockedFetchImages = vi.mocked(fetchPageImages);
 const mockedPurge = vi.mocked(requestPurgeCdpProductImages);

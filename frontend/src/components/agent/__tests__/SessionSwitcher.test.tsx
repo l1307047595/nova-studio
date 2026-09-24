@@ -66,7 +66,9 @@ describe('SessionSwitcher sidebar', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '创建' }));
 
     await waitFor(() => expect(sessionApi.createAgentSession).toHaveBeenCalledWith('新的工作流', 'squeeze'));
-    expect(sessionApi.listAgentSessionsForAgent).toHaveBeenCalledTimes(3);
+    // 会话列表改为 useMemo 派生（不再用 state + effect 同步），mount 时少一次冗余读取：
+    // 现在只有「初始化 + 变更后 refresh」两次（原来还有 effect 里那一次）。
+    expect(sessionApi.listAgentSessionsForAgent).toHaveBeenCalledTimes(2);
     expect(onSessionChange).toHaveBeenCalledWith('new-session');
   });
 
@@ -81,7 +83,9 @@ describe('SessionSwitcher sidebar', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: '保存' }));
 
     await waitFor(() => expect(sessionApi.renameAgentSession).toHaveBeenCalledWith('design', '最终稿'));
-    expect(sessionApi.listAgentSessionsForAgent).toHaveBeenCalledTimes(3);
+    // 会话列表改为 useMemo 派生（不再用 state + effect 同步），mount 时少一次冗余读取：
+    // 现在只有「初始化 + 变更后 refresh」两次（原来还有 effect 里那一次）。
+    expect(sessionApi.listAgentSessionsForAgent).toHaveBeenCalledTimes(2);
   });
 
   it('does not offer deletion for the default session', () => {
@@ -127,7 +131,9 @@ describe('SessionSwitcher sidebar', () => {
     await waitFor(() => expect(sessionApi.deleteAgentSession).toHaveBeenCalledWith('design'));
     expect(contextStore.deleteAgentSessionDatabase).toHaveBeenCalledWith('design');
     expect(onSessionChange).not.toHaveBeenCalled();
-    expect(sessionApi.listAgentSessionsForAgent).toHaveBeenCalledTimes(3);
+    // 会话列表改为 useMemo 派生（不再用 state + effect 同步），mount 时少一次冗余读取：
+    // 现在只有「初始化 + 变更后 refresh」两次（原来还有 effect 里那一次）。
+    expect(sessionApi.listAgentSessionsForAgent).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the registry entry, restores the old session, and reports an error when deletion fails', async () => {
@@ -142,7 +148,7 @@ describe('SessionSwitcher sidebar', () => {
     expect(await within(dialog).findByRole('alert')).toHaveTextContent('删除会话失败，请重试。');
     expect(onSessionChange.mock.calls.map(([id]) => id)).toEqual(['default', 'design']);
     expect(sessionApi.deleteAgentSession).not.toHaveBeenCalled();
-    expect(sessionApi.listAgentSessionsForAgent).toHaveBeenCalledTimes(2);
+    expect(sessionApi.listAgentSessionsForAgent).toHaveBeenCalledTimes(1);
     expect(dialog).toBeInTheDocument();
   });
 

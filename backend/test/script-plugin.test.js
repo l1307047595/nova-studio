@@ -3,7 +3,7 @@ const test = require('node:test');
 
 const { synthesizeUiSchema } = require('../plugin-runtime/schema-synthesizer');
 const { validatePluginPackage } = require('../plugin-runtime/validate');
-const { buildContext, submitTask, pollTask, normalizePollResponse, assertUrlAllowed } = require('../plugin-runtime/executor');
+const { buildContext, normalizePollResponse, assertUrlAllowed } = require('../plugin-runtime/executor');
 
 test('智能 UI 合成器：根据 manifest.json 自动推导完整合规的 uiSchema', () => {
   const manifest = {

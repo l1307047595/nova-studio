@@ -25,8 +25,6 @@ function getPluginsDir() {
   return process.env.NOVA_PLUGINS_DIR || DEFAULT_PLUGINS_DIR;
 }
 
-const REQUIRED_FILES = ['manifest.json', 'ui.schema.json', 'provider.json'];
-
 /** @type {{ loadedAt: number, plugins: Map<string, object>, failures: Array<object> } | null} */
 let cache = null;
 

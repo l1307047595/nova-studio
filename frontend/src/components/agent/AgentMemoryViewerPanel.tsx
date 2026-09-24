@@ -67,6 +67,7 @@ export function AgentMemoryViewerPanel({
 
   useEffect(() => {
     if (open) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 打开时重置编辑态（一次性）
       setMessage('');
       setEditing(null);
       setNewEntry('');

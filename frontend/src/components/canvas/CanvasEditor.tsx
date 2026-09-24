@@ -357,7 +357,6 @@ export function CanvasEditor({ projectId, onBack, onRequireApiKey, showToast, sh
   const activeGenerationsRef = useRef<Map<string, AbortController>>(new Map());
   const resultCacheRetriesRef = useRef<Map<string, AbortController>>(new Map());
   const retryCooldownRef = useRef<Map<string, number>>(new Map());
-  const textGenerationControllersRef = useRef<Map<string, AbortController>>(new Map());
   const [undoStack, setUndoStack] = useState<HistorySnapshot[]>([]);
   const [redoStack, setRedoStack] = useState<HistorySnapshot[]>([]);
   const continuousHistoryTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -2215,7 +2214,8 @@ export function CanvasEditor({ projectId, onBack, onRequireApiKey, showToast, sh
     } finally {
       setAiTextGenerating(false);
     }
-  }, [aiTextTargetNodeId, onRequireApiKey]);
+    // aiTextOriginal 参与 systemPrompt（buildAiTextSystemPrompt），必须进依赖
+  }, [aiTextOriginal, aiTextTargetNodeId, onRequireApiKey]);
 
   const handleAiTextAccept = useCallback(() => {
     const nodeId = aiTextTargetNodeId;
@@ -2239,104 +2239,6 @@ export function CanvasEditor({ projectId, onBack, onRequireApiKey, showToast, sh
     setAiTextGenerating(false);
     setAiTextError(null);
   }, []);
-
-  // ---- AI 文本生成：复用 default agent 文本模型流式生成 ----
-  const handleAiGenerate = useCallback(
-    async (nodeId: string, userPrompt: string) => {
-      let textModel;
-      try {
-        textModel = requireDefaultConfiguredTextModel("agent");
-      } catch {
-        onRequireApiKey();
-        return;
-      }
-
-      // 取消该节点已有的生成
-      textGenerationControllersRef.current.get(nodeId)?.abort();
-      const controller = new AbortController();
-      textGenerationControllersRef.current.set(nodeId, controller);
-
-      // 获取当前节点的现有内容
-      const currentNode = nodes.find((n) => n.id === nodeId);
-      const existingContent = currentNode?.metadata?.content || "";
-
-      patchNode(nodeId, (n) => ({
-        ...n,
-        metadata: { ...n.metadata, isStreaming: true, streamPreview: "", lastError: undefined },
-      }));
-
-      try {
-        const systemPrompt = buildAiTextSystemPrompt(existingContent);
-        const body = buildSimpleProxyTextRequestBody(
-          textModel.protocol,
-          textModel.modelId,
-          [{ type: "text", text: `用户输入：\n${userPrompt}` }],
-          { stream: true, systemInstruction: systemPrompt, reasoningEffort: "low" }
-        );
-
-        const response = await fetch("/api/nova/proxy/text", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            protocol: textModel.protocol,
-            baseUrl: textModel.baseUrl,
-            apiKey: textModel.apiKey,
-            model: textModel.modelId,
-            stream: true,
-            requestBody: body,
-          }),
-          signal: controller.signal,
-        });
-
-        if (!response.ok) throw new Error(`生成失败 (${response.status})`);
-        if (!response.body) throw new Error("响应没有可读流");
-
-        let accumulated = "";
-
-        await readSseStream(response.body, controller.signal, (event) => {
-          if (!event.data || event.data === "[DONE]") return;
-          let payload: Record<string, unknown>;
-          try { payload = JSON.parse(event.data); } catch { return; }
-          accumulated = handleSimpleTextStreamEvent(
-            textModel.protocol,
-            payload,
-            event.event || "",
-            accumulated,
-            (delta) => {
-              patchNode(nodeId, (n) => ({
-                ...n,
-                metadata: { ...n.metadata, streamPreview: `${n.metadata?.streamPreview || ""}${delta}` },
-              }));
-            },
-            () => undefined
-          );
-        });
-
-        if (controller.signal.aborted) return;
-
-        patchNode(nodeId, (n) => ({
-          ...n,
-          metadata: {
-            ...n.metadata,
-            content: accumulated || n.metadata?.content || "",
-            isStreaming: false,
-            streamPreview: undefined,
-          },
-        }));
-      } catch (err) {
-        if (controller.signal.aborted) return;
-        const message = err instanceof Error ? err.message : "AI 生成失败";
-        patchNode(nodeId, (n) => ({
-          ...n,
-          metadata: { ...n.metadata, isStreaming: false, streamPreview: undefined, lastError: message },
-        }));
-        showToast(message, "error");
-      } finally {
-        textGenerationControllersRef.current.delete(nodeId);
-      }
-    },
-    [nodes, patchNode, showToast, onRequireApiKey],
-  );
 
   // ---- 提示词优化：结合连接的上游图片（vision）/ 文字（context） ----
   const handleOptimizePrompt = useCallback(

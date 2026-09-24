@@ -78,7 +78,7 @@ export function stripTokenSuffix(modelId: string): string {
   return modelId;
 }
 
-export function isTokenModel(modelId: string): boolean {
+export function isTokenModel(_modelId: string): boolean {
   return false;
 }
 

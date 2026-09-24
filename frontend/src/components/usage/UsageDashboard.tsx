@@ -95,6 +95,7 @@ export function UsageDashboard({ wideMode = false, active = true }: { wideMode?:
 
   // 切到本 Tab 才拉数据，避免常驻后台请求（各 Tab 都是 keepMounted）
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 切到本 Tab 才拉数据（load 内部会同步置 loading，属有意的）
     if (active) void load();
   }, [active, load]);
 

@@ -1,5 +1,5 @@
 import { act, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { Tabs } from '@/components/ui/tabs';
 import { WorkspaceModeTabs } from '../WorkspaceModeTabs';
 
@@ -61,7 +61,7 @@ describe('WorkspaceModeTabs', () => {
     };
 
     // Mock clientWidth on container to be narrow (e.g. 700px, where 8 tabs * 110px = 880px > 700px)
-    let containerWidth = 700;
+    const containerWidth = 700;
     Object.defineProperty(HTMLElement.prototype, 'clientWidth', {
       configurable: true,
       get() {

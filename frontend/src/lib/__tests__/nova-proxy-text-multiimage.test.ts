@@ -14,7 +14,8 @@ const IMAGES = [
 ];
 
 const PROTOCOLS: TextProviderProtocol[] = [
-  'openai',
+  // 'openai' 不是合法协议值（合法：openai-responses / openai-chat-completions / anthropic-messages / google-gemini）
+  'openai-responses',
   'openai-chat-completions',
   'anthropic-messages',
   'google-gemini',

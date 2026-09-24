@@ -50,9 +50,9 @@ import {
 } from '@/lib/workspace-task-service';
 import { cn } from '@/lib/utils';
 import { BA_RANDOM_URL, BING_WALLPAPER_URL } from '@/lib/constants';
-import { getActiveAgentSessionId, setActiveAgentSessionId, listAgentSessionsForAgent, defaultSessionIdForAgent } from '@/lib/agent-sessions';
+import { getActiveAgentSessionId, setActiveAgentSessionId, defaultSessionIdForAgent } from '@/lib/agent-sessions';
 import { setAgentSession } from '@/lib/agent-context-store';
-import { DEFAULT_AGENT_ID, getCurrentAgentId, setCurrentAgentId, setLastSessionForAgent } from '@/lib/nova-agents';
+import { getCurrentAgentId, setCurrentAgentId, setLastSessionForAgent } from '@/lib/nova-agents';
 import { setMemoryAgent } from '@/lib/nova-memory';
 
 export function WorkspaceShell() {

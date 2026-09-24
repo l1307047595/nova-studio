@@ -270,13 +270,27 @@ async function resultImageToBlob(ref: string): Promise<Blob> {
   return base64ToBlob(ref, 'image/png');
 }
 
+/*
+ * 记忆沉淀的空闲阈值默认值（3 分钟无新对话才算空闲）。
+ * 放模块作用域：它是常量，写在 hook 里会被 exhaustive-deps 当成依赖，
+ * 逼着 effect 每次渲染重挂；放外面才是它本来的语义。
+ */
+const MEMORY_IDLE_MS = 3 * 60 * 1000;
+
 export function useAgentChat(sessionId = 'default') {
   const sessionIdRef = useRef(sessionId);
 
   // ===== 记忆读写时机控制 =====
   // 读：会话开始 / 新图上传（见 loadAgentMemory 调用点）；写：空闲心跳（见下方 useEffect）
-  const MEMORY_IDLE_MS = 3 * 60 * 1000;   // 3 分钟无新对话才算空闲
-  const memoryActivityRef = useRef(Date.now());
+  /*
+   * React Compiler 纯度规则：渲染期不能调用 Date.now()。
+   * 先置 0 当哨兵（语义＝「刚活跃过」），首帧后由 effect 打时间戳；
+   * 读的地方把 0 视为「未空闲」，绝不会因为哨兵而误触发记忆沉淀。
+   */
+  const memoryActivityRef = useRef(0);
+  useEffect(() => {
+    if (memoryActivityRef.current === 0) memoryActivityRef.current = Date.now();
+  }, []);
   const memoryUndepositedRef = useRef(0);
   const memorySinkBusyRef = useRef(false);
   // 待确认草稿（心跳只入队，你确认后才写进真记忆文件）
@@ -460,6 +474,22 @@ export function useAgentChat(sessionId = 'default') {
     }
   }, []);
 
+  const appendMessage = useCallback(async (
+    message: AgentMessage,
+    sessionGeneration = sessionGenerationRef.current,
+  ): Promise<boolean> => {
+    if (!isSessionCurrent(sessionGeneration)) return false;
+    // ref 同步追加：maybeAutoContinue 等同一 tick 内读 messagesRef 的路径，
+    // 不能等到 render 后的 useEffect 才看见这条消息；useEffect 之后的整体回写与此一致，不会重复。
+    messagesRef.current = [...messagesRef.current, message];
+    setMessages(prev => [...prev, message]);
+    await putMessage(message, sessionIdRef.current, sessionGeneration);
+    // 记忆：有对话活动 → 刷新空闲计时，并标记本会话有未沉淀变更
+    memoryActivityRef.current = Date.now();
+    memoryUndepositedRef.current += 1;
+    return isSessionCurrent(sessionGeneration);
+  }, [isSessionCurrent]);
+
   useEffect(() => {
     mountedRef.current = true;
     let cancelled = false;
@@ -547,7 +577,9 @@ export function useAgentChat(sessionId = 'default') {
       void listPendingDrafts().then(store => setPendingDrafts(store.items));   // 待确认角标
     })();
     return () => { cancelled = true; };
-  }, []);
+    // appendMessage 依赖 isSessionCurrent（deps=[]，恒定），所以本 effect 仍然只跑一次；
+    // 补进依赖数组是修「隐式依赖」，不是压制警告。
+  }, [appendMessage]);
 
   // ===== 记忆沉淀心跳 =====
   // 触发条件：无进行中的生成任务 && 空闲到阈值 && 本会话有未沉淀变更
@@ -569,7 +601,7 @@ export function useAgentChat(sessionId = 'default') {
         pushSinkLog({ skip: '有进行中的生成任务', activeGenerationCount });
         return;
       }
-      const idleFor = Date.now() - memoryActivityRef.current;
+      const idleFor = memoryActivityRef.current === 0 ? 0 : Date.now() - memoryActivityRef.current;
       if (idleFor < idleMs) {
         pushSinkLog({ skip: '未到空闲阈值', idleFor, idleMs });
         return;
@@ -799,22 +831,6 @@ export function useAgentChat(sessionId = 'default') {
       preferredKind: kind,
     });
   }, [getAgentTextModelConfig]);
-
-  const appendMessage = useCallback(async (
-    message: AgentMessage,
-    sessionGeneration = sessionGenerationRef.current,
-  ): Promise<boolean> => {
-    if (!isSessionCurrent(sessionGeneration)) return false;
-    // ref 同步追加：maybeAutoContinue 等同一 tick 内读 messagesRef 的路径，
-    // 不能等到 render 后的 useEffect 才看见这条消息；useEffect 之后的整体回写与此一致，不会重复。
-    messagesRef.current = [...messagesRef.current, message];
-    setMessages(prev => [...prev, message]);
-    await putMessage(message, sessionIdRef.current, sessionGeneration);
-    // 记忆：有对话活动 → 刷新空闲计时，并标记本会话有未沉淀变更
-    memoryActivityRef.current = Date.now();
-    memoryUndepositedRef.current += 1;
-    return isSessionCurrent(sessionGeneration);
-  }, [isSessionCurrent]);
 
   const registerImage = useCallback(async (
     record: AgentImageRecord,

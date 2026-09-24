@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { Brain, Copy, Check, Clock, Loader2, RefreshCw, Sparkles, Image as ImageIcon, MessageSquare, X } from 'lucide-react';
+import { Brain, Copy, Check, Clock, Loader2, RefreshCw, Sparkles, Image as ImageIcon, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AgentPhase } from '@/hooks/useAgentChat';
 

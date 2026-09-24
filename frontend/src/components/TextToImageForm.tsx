@@ -20,9 +20,7 @@ import { loadJsonFromStorage, saveJsonToStorage } from '@/lib/settings-storage';
 import { requireDefaultConfiguredTextModel } from '@/lib/model-endpoints';
 import { type ModelId } from '@/lib/gemini-config';
 import {
-  getAspectRatioOptions,
   getCustomSizeMaxSide,
-  getValidOutputSizes,
   DEFAULT_GPT_IMAGE_ADVANCED_PARAMS,
   getGptImageAdvancedParamsForModel,
   normalizeCustomImageSize,

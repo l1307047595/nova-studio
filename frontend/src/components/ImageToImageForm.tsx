@@ -30,7 +30,6 @@ import {
   getCustomSizeMaxSide,
   getOutputSizeLabel,
   getSizeOptions,
-  getValidOutputSizes,
   getSupportsTemperature,
   DEFAULT_GPT_IMAGE_ADVANCED_PARAMS,
   getGptImageAdvancedParamsForModel,

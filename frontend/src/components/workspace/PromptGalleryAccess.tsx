@@ -17,6 +17,7 @@ export function usePromptGalleryAccess(
   useEffect(() => {
     if (mode === '2') return;
 
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mode 变化时同步入口可见性（mode=2 时保留原值）
     setShowPromptGallery(mode === '1');
   }, [mode]);
 

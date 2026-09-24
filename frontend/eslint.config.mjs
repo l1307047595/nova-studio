@@ -9,6 +9,13 @@ const eslintConfig = defineConfig([
     rules: {
       "@next/next/no-img-element": "off",
       "react-hooks/incompatible-library": "off",
+      // 允许用下划线前缀显式声明「故意不用的参数/变量」：
+      // 公共 API 存根（如 supportsTokenMode 的入参）与测试 mock 参数必须保留签名。
+      "@typescript-eslint/no-unused-vars": ["warn", {
+        argsIgnorePattern: "^_",
+        varsIgnorePattern: "^_",
+        caughtErrorsIgnorePattern: "^_",
+      }],
     },
   },
   // Override default ignores of eslint-config-next.

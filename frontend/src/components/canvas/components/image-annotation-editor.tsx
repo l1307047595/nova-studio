@@ -386,6 +386,7 @@ export function ImageAnnotationEditor({ src, title, onClose, onSubmit }: ImageAn
   // ── Image pre-load (with CORS support for canvas operations) ──
   useEffect(() => {
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 换图时重置加载态，与图片预加载 effect 同步（一次性）
     setImageLoaded(false);
     setImageError(false);
     setNaturalSize({ width: 0, height: 0 });
@@ -453,22 +454,29 @@ export function ImageAnnotationEditor({ src, title, onClose, onSubmit }: ImageAn
 
   // ── Redraw function (kept in ref for use in event handlers) ──
   const redrawRef = useRef<() => void>(() => {});
-  redrawRef.current = () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.scale(dpr, dpr);
-    for (const ann of annotations) {
-      drawAnnotation(ctx, ann);
-    }
-    if (draftRef.current) {
-      drawAnnotation(ctx, draftRef.current);
-    }
-  };
+  /*
+   * redrawRef 的赋值放在 effect 里：渲染期写 ref 会被 React Compiler 判为
+   * 「Cannot access refs during render」并跳过对该组件的优化。
+   * 无依赖数组 → 每次渲染后刷新；事件处理器在绘制之后才触发，读到的始终是最新闭包。
+   */
+  useEffect(() => {
+    redrawRef.current = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const dpr = window.devicePixelRatio || 1;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.scale(dpr, dpr);
+      for (const ann of annotations) {
+        drawAnnotation(ctx, ann);
+      }
+      if (draftRef.current) {
+        drawAnnotation(ctx, draftRef.current);
+      }
+    };
+  });
 
   // Redraw when annotations or display size change
   useEffect(() => { redrawRef.current(); }, [annotations, displaySize]);

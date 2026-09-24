@@ -244,7 +244,7 @@ function cleanupOldCdpImages() {
 
     if (toDelete.length > 0) {
       for (const p of toDelete) {
-        try { fs.unlinkSync(p); } catch {}
+        try { fs.unlinkSync(p); } catch { /* 旧图可能已被删/被占用：清理是尽力而为 */ }
       }
       console.log(`✓ CDP 图片清理：删除 ${toDelete.length} 张旧图（保留最近 7 天或最多 100 张）`);
     }
@@ -382,7 +382,7 @@ function readCdpRuntimeConfig() {
   }
   try {
     // 用户用记事本/PowerShell 手工编辑可能带入 UTF-8 BOM，先剥离再解析
-    const parsed = JSON.parse(fs.readFileSync(CDP_RUNTIME_CONFIG_PATH, 'utf8').replace(/^﻿/, ''));
+    const parsed = JSON.parse(fs.readFileSync(CDP_RUNTIME_CONFIG_PATH, 'utf8').replace(/^\uFEFF/, ''));
     const config = parsed && typeof parsed === 'object' ? parsed : {};
     cdpRuntimeConfigCache = config;
     cdpRuntimeConfigCacheTime = now;
@@ -812,7 +812,7 @@ function purgeCdpProductFiles(files) {
         fs.unlinkSync(filePath);
         deleted += 1;
       }
-    } catch {}
+    } catch { /* 单个文件失败不影响整体清扫 */ }
   }
   return deleted;
 }
@@ -3002,7 +3002,7 @@ function matchMemoryBlocks(text, query, limitCount, totalChars) {
 
 /** 抽取 #标签（中英文/数字，支持 #a-b_c）——标签维度固定，值自由增长 */
 function extractMemoryTags(text) {
-  const found = String(text || '').match(/#[^\s#，。；、,;:：()（）\[\]【】"'`]{1,24}/g) || [];
+  const found = String(text || '').match(/#[^\s#，。；、,;:：()（）[\]【】"'`]{1,24}/g) || [];
   return Array.from(new Set(found.map(tag => tag.slice(1).trim()).filter(Boolean))).slice(0, 12);
 }
 
@@ -3117,7 +3117,6 @@ function appendRecentEntry(agentId, text) {
   if (!dir) throw new Error('agent 不存在或 id 非法');
   const body = String(text || '').trim();
   const keep = Math.max(1, MEMORY_LIMITS.recentKeep);
-  const target = path.join(dir, MEMORY_FILE_NAMES.recent);
   const { header, entries } = splitMemoryFile(readMemoryFile(agentId, 'recent') || '');
   const stamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
   entries.push(`- [${stamp}] ${body}`);
@@ -3276,7 +3275,7 @@ async function checkUpdateViaGithub() {
 
 function listAgents() {
   const root = memoryAgentsRoot();
-  let names = [];
+  let names;
   try {
     names = fs.readdirSync(root, { withFileTypes: true })
       .filter(entry => entry.isDirectory() && !entry.name.startsWith('_') && !entry.name.startsWith('.'))
@@ -3728,7 +3727,7 @@ function deleteSessionState(agentId, sessionId) {
   try {
     if (fs.existsSync(file)) fs.unlinkSync(file);
   } catch (error) {
-    throw new Error(`删除失败：${normalizeError(error)}`);
+    throw new Error(`删除失败：${normalizeError(error)}`, { cause: error });
   }
   return { ok: true };
 }

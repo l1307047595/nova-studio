@@ -25,7 +25,6 @@ import {
   getCustomSizeMaxSide,
   getGptImageAdvancedParamsForModel,
   getModelMaxRefImages,
-  getValidOutputSizes,
   normalizeCustomImageSize,
   normalizeModel,
   sanitizeLayoutForModel,
@@ -314,6 +313,7 @@ export function ImageGenerationWorkbench({
     if (consumedDraftRef.current === referenceDraft.id) return;
     consumedDraftRef.current = referenceDraft.id;
     if (referenceDraft.prompt) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 消费一次性草稿（ref 去重保证只跑一次）
       setPrompt(referenceDraft.prompt);
     }
 
@@ -435,7 +435,8 @@ export function ImageGenerationWorkbench({
     } finally {
       setLoading(false);
     }
-  }, [autoLayoutLocked, detectImageAspectRatio, maxImages, model, pendingFiles.length]);
+    // modelLimit.description 在错误提示里用到（第 392 行），漏了它会让提示语停在旧值
+  }, [autoLayoutLocked, detectImageAspectRatio, maxImages, model, modelLimit.description, pendingFiles.length]);
 
   const handleImportAssets = useCallback(async (selectedAssets: ImageAsset[]) => {
     if (selectedAssets.length === 0) return;
