@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { Check, ImagePlus, Layers, Maximize, Pencil, RectangleHorizontal, Sparkles, Thermometer, Wand2, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Check, ImagePlus, Layers, Maximize, Pencil, RectangleHorizontal, Sparkles, Thermometer, Upload, Wand2, X } from 'lucide-react';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Slider } from '@/components/ui/slider';
@@ -70,6 +70,11 @@ interface AgentProposalCardProps {
   onModelChange: (model: ModelId) => void;
   onApprove: (prompt: string, selectedImageIds: string[], model: ModelId, params: AgentApproveParams, promptEn?: string) => void;
   onCancel: () => void;
+  /**
+   * 在确认步补传参考图：把文件交给上层登记进会话图片目录，返回新登记（或复用）的 imgId。
+   * 返回的 ID 会被自动勾选，省掉「先回对话里传图、再回来重新确认」这一趟。
+   */
+  onUploadReferences?: (files: File[]) => Promise<string[] | void>;
 }
 
 const PARALLEL_OPTIONS: ParallelCount[] = PARALLEL_COUNT_VALUES;
@@ -113,6 +118,7 @@ export function AgentProposalCard({
   onModelChange,
   onApprove,
   onCancel,
+  onUploadReferences,
 }: AgentProposalCardProps) {
   const scopedProposal = useMemo(() => scopeAgentProposal(proposal, images), [proposal, images]);
   const scopedImages = useMemo(() => {
@@ -127,7 +133,16 @@ export function AgentProposalCard({
     scopedProposal.productKey
       // 商品提案默认使用该商品抓到的全部图片；模型上限只负责截断，不再依赖 LLM 逐张列 ID
       ? [...scopedImages].sort((a, b) => a.createdAt - b.createdAt).map(img => img.imgId)
-      : scopedProposal.referencedImageIds.filter(id => scopedImages.some(img => img.imgId === id))
+      // 无商品归属的提案（典型：用户在对话里直接上传参考图）：模型点名的图优先（有依据），
+      // 再用本会话的「非生成类」图按上传顺序补足 —— 用户在对话里传了图，就不允许出现一张都没选的空提案。
+      : (() => {
+        const listed = scopedProposal.referencedImageIds.filter(id => scopedImages.some(img => img.imgId === id));
+        const rest = scopedImages
+          .filter(img => img.source !== 'generated' && !listed.includes(img.imgId))
+          .sort((a, b) => a.createdAt - b.createdAt)
+          .map(img => img.imgId);
+        return [...listed, ...rest];
+      })()
   ).slice(0, Math.max(0, maxRefs));
   const [selectedIds, setSelectedIds] = useState<string[]>(initialSelectedIds);
   const [layout, setLayout] = useState<AgentApproveParams>(() => resolveCardLayout(imageModel, scopedProposal));
@@ -306,6 +321,38 @@ export function AgentProposalCard({
     setTimeout(() => setParallelPopoverOpen(false), 0);
   };
 
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadingRefs, setUploadingRefs] = useState(false);
+
+  /** 确认步补传参考图：登记进会话目录后自动勾选，并保证标记为「参考图生成」 */
+  const handlePickReferences = async (files: FileList | null) => {
+    if (!files || files.length === 0 || !onUploadReferences) return;
+    const picked = Array.from(files).filter(file => file.type.startsWith('image/'));
+    if (picked.length === 0) return;
+    if (maxRefs <= 0) {
+      const switched = findReferenceCapableModel(imageModel);
+      if (switched && switched !== imageModel) handleModelChange(switched);
+    }
+    setUploadingRefs(true);
+    try {
+      const added = await onUploadReferences(picked);
+      if (Array.isArray(added) && added.length > 0) {
+        setSelectedIds(prev => {
+          const next = [...prev];
+          for (const id of added) {
+            if (!id || next.includes(id)) continue;
+            if (maxRefs > 0 && next.length >= maxRefs) break;
+            next.push(id);
+          }
+          return next;
+        });
+      }
+    } finally {
+      setUploadingRefs(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   const handleApprove = () => {
     if (busy || overLimit) return;
     if (maxRefs <= 0 && selectedIds.length > 0) return;
@@ -358,16 +405,16 @@ export function AgentProposalCard({
         </details>
       )}
 
-      {orderedImages.length > 0 && (
-        <div className="mb-3">
-          <div className="mb-1.5 flex items-center justify-between">
-            <label className="text-xs font-medium text-muted-foreground">
-              参考图片（点击勾选，可全部取消）
-            </label>
-            <span className={cn('text-xs', overLimit ? 'text-destructive' : 'text-muted-foreground')}>
-              已选 {selectedIds.length} / 上限 {maxRefs}
-            </span>
-          </div>
+      <div className="mb-3">
+        <div className="mb-1.5 flex items-center justify-between">
+          <label className="text-xs font-medium text-muted-foreground">
+            参考图片（点击勾选，可全部取消）
+          </label>
+          <span className={cn('text-xs', overLimit ? 'text-destructive' : 'text-muted-foreground')}>
+            已选 {selectedIds.length} / 上限 {maxRefs}
+          </span>
+        </div>
+        {orderedImages.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {orderedImages.map(img => {
               const selected = selectedIds.includes(img.imgId);
@@ -402,18 +449,47 @@ export function AgentProposalCard({
               );
             })}
           </div>
-          {maxRefs <= 0 && selectedIds.length > 0 && (
-            <p className="mt-1 text-xs text-destructive">
-              当前模型不支持参考图，请切换到支持编辑的模型或取消选择。
-            </p>
-          )}
-          {overLimit && maxRefs > 0 && (
-            <p className="mt-1 text-xs text-destructive">
-              当前模型最多 {maxRefs} 张参考图，且没有可自动切换的兼容模型，请取消部分选择。
-            </p>
-          )}
-        </div>
-      )}
+        )}
+        {/* 确认步补传参考图：不必回对话里重传一轮，直接在这里加图并自动勾选 */}
+        {onUploadReferences && (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              multiple
+              className="hidden"
+              onChange={e => void handlePickReferences(e.target.files)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              size="xs"
+              disabled={busy || uploadingRefs}
+              onClick={() => fileInputRef.current?.click()}
+              className="gap-1"
+            >
+              <Upload className="h-3 w-3" />
+              {uploadingRefs ? '上传中…' : '上传参考图'}
+            </Button>
+          </div>
+        )}
+        {selectedIds.length === 0 && (
+          <p className="mt-1 text-xs text-destructive">
+            还没有参考图 —— 不选图不能生成（铁律：没有参考图就不出图）
+          </p>
+        )}
+        {maxRefs <= 0 && selectedIds.length > 0 && (
+          <p className="mt-1 text-xs text-destructive">
+            当前模型不支持参考图，请切换到支持编辑的模型或取消选择。
+          </p>
+        )}
+        {overLimit && maxRefs > 0 && (
+          <p className="mt-1 text-xs text-destructive">
+            当前模型最多 {maxRefs} 张参考图，且没有可自动切换的兼容模型，请取消部分选择。
+          </p>
+        )}
+      </div>
 
       {!hideControls && (
       <div className="mb-3 flex flex-wrap items-center gap-1.5">

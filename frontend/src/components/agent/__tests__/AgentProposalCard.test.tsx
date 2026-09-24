@@ -1,6 +1,6 @@
 import type { ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { AgentProposalCard } from '../AgentProposalCard';
 import { syncDynamicModelExports } from '@/lib/gemini-config';
 import { saveRegistry } from '@/lib/nova-models';
@@ -18,6 +18,23 @@ function image(imgId: string, productKey: string): AgentImageRecord {
     productKey,
     createdAt: Number(imgId.replace(/\D/g, '')) || 1,
   };
+}
+
+/** 对话里直接上传的图：没有 productKey，也不属于任何抓取到的商品 */
+function uploadedImage(imgId: string, createdAt = 100): AgentImageRecord {
+  return {
+    imgId,
+    source: 'uploaded',
+    thumbnail: `data:image/png;base64,${imgId}`,
+    description: '对话上传的参考图',
+    mimeType: 'image/png',
+    createdAt,
+  };
+}
+
+/** 生成出来的图：source=generated，不该被自动拉进参考图 */
+function generatedImage(imgId: string, createdAt = 100): AgentImageRecord {
+  return { ...uploadedImage(imgId, createdAt), source: 'generated' };
 }
 
 function proposal(overrides: Partial<AgentProposal> = {}): AgentProposal {
@@ -119,5 +136,53 @@ describe('AgentProposalCard', () => {
     expect(screen.getByRole('button', { name: '重试生成' })).toBeInTheDocument();
     expect(screen.queryByText('等待你确认')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '允许并生成' })).not.toBeInTheDocument();
-  });
-});
+    });
+
+    it('无商品归属的提案（对话里直接传的图）默认就要勾上 —— 否则会撞上「没有参考图不出图」的闸门', () => {
+    renderCard({
+      proposal: proposal({ productKey: undefined, referencedImageIds: [] }),
+      images: [uploadedImage('img-u1', 1), uploadedImage('img-u2', 2)],
+    });
+
+    expect(screen.getByText('已选 2 / 上限 14')).toBeInTheDocument();
+    });
+
+    it('无商品归属的提案：模型点名的图排在前面，其余本会话上传图补足', () => {
+    const { onApprove } = renderCard({
+      proposal: proposal({ productKey: undefined, referencedImageIds: ['img-u2'] }),
+      images: [uploadedImage('img-u1', 1), uploadedImage('img-u2', 2)],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '允许并生成' }));
+    expect(onApprove.mock.calls[0][1]).toEqual(['img-u2', 'img-u1']);
+    });
+
+    it('生成出来的图不会被自动拉进参考图；一张都没选时给出铁律提示', () => {
+    renderCard({
+      proposal: proposal({ productKey: undefined, referencedImageIds: [] }),
+      images: [generatedImage('img-g1')],
+    });
+
+    expect(screen.getByText('已选 0 / 上限 14')).toBeInTheDocument();
+    expect(screen.getByText(/还没有参考图/)).toBeInTheDocument();
+    });
+
+    it('确认步能就地补传参考图，上传后自动勾选并可直接用它生成', async () => {
+    const onUploadReferences = vi.fn().mockResolvedValue(['img-new1']);
+    const { container, onApprove } = renderCard({
+      proposal: proposal({ productKey: undefined, referencedImageIds: [] }),
+      images: [],
+      onUploadReferences,
+    });
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(input).toBeTruthy();
+    fireEvent.change(input, { target: { files: [new File(['x'], 'ref.png', { type: 'image/png' })] } });
+
+    await waitFor(() => expect(onUploadReferences).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText('已选 1 / 上限 14')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: '允许并生成' }));
+    expect(onApprove.mock.calls[0][1]).toEqual(['img-new1']);
+    });
+    });

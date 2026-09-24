@@ -425,6 +425,36 @@ export function AgentChatWorkspace({
     }
   }, [agent.hasApiKey, agent.ready, disabled]);
 
+  /**
+   * 提案确认步补传参考图：直接登记进会话图片目录（不经过输入框的待发送暂存），
+   * 返回 imgId 供提案卡自动勾选。铁律是"没有参考图就不出图"，
+   * 所以这一步必须能就地补图，而不是让用户退回对话重传一轮。
+   */
+  const handleUploadReferences = useCallback(async (files: File[]): Promise<string[]> => {
+    if (files.length === 0) return [];
+    if (!agent.hasApiKey) {
+      setMissingApiKeyDialogOpen(true);
+      return [];
+    }
+    const prepared: PendingUpload[] = [];
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue;
+      if (file.size > MAX_UPLOAD_SIZE_BYTES) continue;
+      const item = await prepareUploadImage(file);
+      prepared.push({
+        id: item.id || generateUUID(),
+        name: item.name,
+        preview: item.preview,
+        dataUrl: item.dataUrl,
+        mimeType: item.mimeType,
+        badge: getOptimizationBadge(item.originalSize, item.processedSize, item.cacheHit),
+        source: 'uploaded',
+      });
+    }
+    if (prepared.length === 0) return [];
+    return agent.addReferenceImages(prepared);
+  }, [agent]);
+
   // Ctrl+V 粘贴图片
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
@@ -748,6 +778,7 @@ export function AgentChatWorkspace({
             hideControls={!intentRecognition}
             failed={Boolean(agent.error)}
             onModelChange={agent.setImageModel}
+            onUploadReferences={handleUploadReferences}
             onApprove={(prompt, ids, _model, _params, promptEn) => {
               if (intentRecognition) {
                 void agent.approveProposal(prompt, ids, _model, _params, promptEn);

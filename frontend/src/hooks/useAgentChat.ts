@@ -929,6 +929,52 @@ export function useAgentChat(sessionId = 'default') {
   }, [getAgentTextModelConfig, isSessionCurrent, nextImgId, patchImageDescription, registerImage, reloadMemoryForCurrentSession]);
 
   /**
+   * 确认步补传参考图：把待上传图片登记进会话图片目录（同内容哈希复用，不重复登记），
+   * 返回可用于提案的 imgId 列表。与 sendMessage 的上传共用 ingestImage，
+   * 但不推进对话、不切 describing 阶段 —— 只把图放进目录，等用户在提案卡里确认。
+   */
+  const addReferenceImages = useCallback(async (uploads: PendingUpload[]): Promise<string[]> => {
+    if (uploads.length === 0) return [];
+    const sessionGeneration = sessionGenerationRef.current;
+    const linkedIds: string[] = [];
+    const seenHashes = new Set<string>();
+    for (const upload of uploads) {
+      if (!isSessionCurrent(sessionGeneration)) break;
+      const hash = upload.id;
+      if (hash && seenHashes.has(hash)) continue;
+      const existing = hash ? imagesRef.current.find(img => img.contentHash === hash) : undefined;
+      if (existing) {
+        if (hash) seenHashes.add(hash);
+        if (!linkedIds.includes(existing.imgId)) linkedIds.push(existing.imgId);
+        continue;
+      }
+      try {
+        const blob = await resultImageToBlob(upload.dataUrl);
+        if (!isSessionCurrent(sessionGeneration)) break;
+        const preview = await makePreviewFromBlob(blob);
+        if (!isSessionCurrent(sessionGeneration)) break;
+        const record = await ingestImage(
+          upload.source || 'uploaded',
+          blob,
+          preview.dataUrl,
+          upload.mimeType,
+          undefined,
+          { width: preview.width, height: preview.height },
+          hash || undefined,
+          undefined,
+          undefined,
+          sessionGeneration,
+        );
+        if (hash) seenHashes.add(hash);
+        linkedIds.push(record.imgId);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : '图片处理失败');
+      }
+    }
+    return linkedIds;
+  }, [ingestImage, isSessionCurrent]);
+
+  /**
    * CDP 工具执行器：执行浏览器工具；抓图工具返回的 localUrls 逐张登记进图片目录，
    * 并把新 imgId 列表拼回给模型，使其可以在 propose_image_action 里引用。
    *
@@ -2343,6 +2389,7 @@ export function useAgentChat(sessionId = 'default') {
     cdpEnabled,
     intentRecognition,
     sendMessage,
+    addReferenceImages,
     approveProposal,
     cancelProposal,
     reeditProposal,
