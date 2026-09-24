@@ -230,11 +230,9 @@ export function AgentMessageBubble({
         {linkedImages.length > 0 && (
           <div className="flex flex-wrap gap-2">
             {linkedImages.map((img, index) => (
-              <div
-                key={img.imgId}
-                className="group relative h-24 w-24 overflow-hidden rounded-lg border border-border"
-                title={img.description}
-              >
+              <div key={img.imgId} className="group/thumb flex flex-col gap-1" title={img.description}>
+                {/* 缩略图放大到 160px：96px 时看不清商品，也没法判断保真度 */}
+                <div className="relative h-40 w-40 overflow-hidden rounded-lg border border-border">
                 <button
                   type="button"
                   onClick={() => void openPreview(linkedImages, index)}
@@ -259,43 +257,51 @@ export function AgentMessageBubble({
                     ✓
                   </span>
                 )}
-                <ImageHoverActions
-                  payload={makeActionPayload(img)}
-                  onPreview={() => void openPreview(linkedImages, index)}
-                  compact
-                  showDownload
-                  showCopy
-                  showAddToAssets
-                  showUseAsReference
-                  extraActions={(
-                    <>
-                      <button
-                        type="button"
-                        onClick={event => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          onSaveAsCase?.(img);
-                        }}
-                        className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-white shadow-sm backdrop-blur-sm transition-colors hover:bg-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
-                        title="这张很好 → 让 AI 起草一条案例，进待确认"
-                      >
-                        <Star className="h-3 w-3" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={event => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          setDescDialogImg({ imgId: img.imgId, description: img.description || 'AI 未生成描述' });
-                        }}
-                        className="flex h-5 w-5 items-center justify-center rounded-full bg-white/20 text-white shadow-sm backdrop-blur-sm transition-colors hover:bg-white/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
-                        title="查看描述"
-                      >
-                        <FileText className="h-3 w-3" />
-                      </button>
-                    </>
-                  )}
-                />
+                </div>
+                {/*
+                 * 按钮放在图片**外面**，且只在鼠标悬浮图片时才出现：
+                 * 叠在图上会把商品糊住（用户原话：功能按钮不要放在图片内，要在图片外）。
+                 */}
+                <div className="flex flex-wrap items-center gap-1 opacity-0 transition-opacity group-hover/thumb:opacity-100 group-focus-within/thumb:opacity-100">
+                  <ImageHoverActions
+                    inline
+                    payload={makeActionPayload(img)}
+                    onPreview={() => void openPreview(linkedImages, index)}
+                    compact
+                    showDownload
+                    showCopy
+                    showAddToAssets
+                    showUseAsReference
+                    extraActions={
+                      <>
+                        <button
+                          type="button"
+                          onClick={event => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            onSaveAsCase?.(img);
+                          }}
+                          className="flex h-6 w-6 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          title="这张很好 → 让 AI 起草一条案例，进待确认"
+                        >
+                          <Star className="h-3 w-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={event => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setDescDialogImg({ imgId: img.imgId, description: img.description || 'AI 未生成描述' });
+                          }}
+                          className="flex h-6 w-6 items-center justify-center rounded-full border border-border bg-card text-muted-foreground shadow-sm transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          title="查看描述"
+                        >
+                          <FileText className="h-3 w-3" />
+                        </button>
+                      </>
+                    }
+                  />
+                </div>
               </div>
             ))}
           </div>

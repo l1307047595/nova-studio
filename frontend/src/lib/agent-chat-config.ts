@@ -227,20 +227,6 @@ export function scopeAgentProposal(proposal: AgentProposal, images: AgentImageRe
     return true;
   });
 
-  /*
-   * 兜底（关键修复）：作用域过滤**绝不能把提案变成「没有参考图」**。
-   *
-   * 之前会出现的死局：目录里的图都带 productKey（从商品页抓回来的），而提案没带
-   * productKey / productName，走到 `productKeys.length > 1 → 只留没有 productKey 的图`
-   * 这条分支 → 过滤结果为空 → 铁律闸门拦下 → 用户看到的是一句看不懂的「生成失败」。
-   * 幂等性上这也说不通：模型明明按目录引用了图片。
-   *
-   * 过滤后为空时回退到「模型真正引用过的、目录里存在的那些图」——宁可让用户看到图，
-   * 也不要让他看到出不了图。跨商品混用的风险由提示词里的「一件商品一组参考图」约束。
-   */
-  const referencedExisting = proposal.referencedImageIds.filter(id => byId.has(id));
-  const finalIds = allowedIds.length > 0 ? allowedIds : referencedExisting;
-
   const matchingImage = productKey ? scopedImages.find(image => normalizeProductKey(image.productKey) === productKey) : undefined;
   const productName = proposal.productName || matchingImage?.productName;
 
@@ -248,7 +234,7 @@ export function scopeAgentProposal(proposal: AgentProposal, images: AgentImageRe
     ...proposal,
     productKey,
     productName,
-    referencedImageIds: finalIds,
+    referencedImageIds: allowedIds,
     queuedProposals: proposal.queuedProposals?.map(item => scopeAgentProposal(item, images)),
   };
 }
