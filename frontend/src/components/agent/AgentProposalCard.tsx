@@ -165,7 +165,9 @@ export function AgentProposalCard({
     setParallelPopoverOpen(false);
   }, []);
 
-  const imageMap = useMemo(() => new Map(scopedImages.map(img => [img.imgId, img])), [scopedImages]);
+  // 用全部图片建映射：已选的图可能不在 scopedImages 里（跨商品/刚上传），
+  // 拿不到记录就取不到像素，预填分辨率会算错。
+  const imageMap = useMemo(() => new Map(images.map(img => [img.imgId, img])), [images]);
 
   // 首张选中参考图的真实像素，用于优先级 2（上传图分辨率）
   const firstRefDims = useMemo(() => {
@@ -213,10 +215,27 @@ export function AgentProposalCard({
   const effectiveMode = selectedIds.length > 0 ? 'edit' : 'generate';
   const overLimit = selectedIds.length > maxRefs;
 
-  const orderedImages = useMemo(
-    () => [...scopedImages].sort((a, b) => b.createdAt - a.createdAt),
-    [scopedImages]
-  );
+  /*
+   * 缩略图列表 = **已勾选的图（含刚上传的）+ 商品作用域内的其余图**。
+   *
+   * 为什么要把「已勾选」单独拎出来：之前列表完全由作用域过滤（scopedImages）决定，
+   * 而用户在卡片里上传参考图后，新图会被自动勾选（「已选」计数变成 1），却不在
+   * 过滤后的列表里 → 缩略图一张都不渲染，用户根本看不出自己传成功了没有
+   * （用户 2026-09-24 反馈：上传后看不到缩略图，不知道是否上传成功）。
+   *
+   * 其余图片仍按商品作用域过滤：跨商品混用参考图是审核事故来源，这条约束不能松。
+   */
+  const orderedImages = useMemo(() => {
+    const byId = new Map(images.map(img => [img.imgId, img]));
+    const picked = selectedIds
+      .map(id => byId.get(id))
+      .filter((img): img is AgentImageRecord => Boolean(img));
+    const pickedIds = new Set(picked.map(img => img.imgId));
+    const rest = scopedImages
+      .filter(img => !pickedIds.has(img.imgId))
+      .sort((a, b) => b.createdAt - a.createdAt);
+    return [...picked, ...rest];
+  }, [images, scopedImages, selectedIds]);
 
   // 各项控件的显示条件（只渲染该模型支持的项）
   const sizeOptions = getSizeOptions(imageModel);
@@ -323,6 +342,8 @@ export function AgentProposalCard({
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadingRefs, setUploadingRefs] = useState(false);
+  /** 刚上传成功的图片 id：给用户一个「确实传上去了」的可见反馈（用户反馈过看不出成功没成功） */
+  const [lastUploaded, setLastUploaded] = useState<string[]>([]);
 
   /** 确认步补传参考图：登记进会话目录后自动勾选，并保证标记为「参考图生成」 */
   const handlePickReferences = async (files: FileList | null) => {
@@ -337,6 +358,7 @@ export function AgentProposalCard({
     try {
       const added = await onUploadReferences(picked);
       if (Array.isArray(added) && added.length > 0) {
+        setLastUploaded(added);
         setSelectedIds(prev => {
           const next = [...prev];
           for (const id of added) {
@@ -472,6 +494,11 @@ export function AgentProposalCard({
               <Upload className="h-3 w-3" />
               {uploadingRefs ? '上传中…' : '上传参考图'}
             </Button>
+            {lastUploaded.length > 0 && (
+              <span className="text-xs text-emerald-600">
+                已上传 {lastUploaded.length} 张：{lastUploaded.join('、')}（已自动勾选，可在上方缩略图确认）
+              </span>
+            )}
           </div>
         )}
         {selectedIds.length === 0 && (

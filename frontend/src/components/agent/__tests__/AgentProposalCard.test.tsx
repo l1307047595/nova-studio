@@ -185,4 +185,30 @@ describe('AgentProposalCard', () => {
     fireEvent.click(screen.getByRole('button', { name: '允许并生成' }));
     expect(onApprove.mock.calls[0][1]).toEqual(['img-new1']);
     });
+
+    it('上传参考图后缩略图必须出现在卡片里 —— 即使它不在该商品的参考图作用域内', async () => {
+    // 用户实测场景：卡片「已选」计数变成 1，但缩略图一张都不渲染，
+    // 用户无法判断上传是否成功。根因：缩略图列表完全由商品作用域过滤决定，
+    // 刚补传的图没有商品归属 → 被滤掉。
+    const onUploadReferences = vi.fn().mockResolvedValue(['img-new1']);
+    const { container } = renderCard({
+      proposal: proposal({ productKey: 'product-a', referencedImageIds: ['img-a1'] }),
+      images: [
+        image('img-a1', 'product-a'),
+        image('img-b1', 'product-b'),
+        uploadedImage('img-new1', 999),
+      ],
+      onUploadReferences,
+    });
+
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [new File(['x'], 'ref.png', { type: 'image/png' })] } });
+
+    // ① 看得见的成功反馈
+    await waitFor(() => expect(screen.getByText(/已上传 1 张：img-new1/)).toBeInTheDocument());
+    // ② 缩略图真的渲染出来
+    expect(container.querySelector('img[alt="img-new1"]')).toBeTruthy();
+    // ③ 别的商品的图仍然不显示：跨商品混用参考图是审核事故来源，这条约束不能松
+    expect(container.querySelector('img[alt="img-b1"]')).toBeNull();
+    });
     });
