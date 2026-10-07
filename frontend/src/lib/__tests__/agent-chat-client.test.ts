@@ -322,6 +322,23 @@ describe('CDP 工具循环', () => {
     expect(collected.done?.text || '').not.toContain('已拦下');
   });
 
+  it('带上 imageAttachments 时，图片直接发给模型（挂在最后一条用户消息上）', async () => {
+    const mock = vi.fn().mockResolvedValue(sseResponse(finalTextFrames('openai-chat-completions', '好的')));
+    vi.stubGlobal('fetch', mock);
+    const { callbacks } = makeCallbacks();
+
+    await streamAgentChat(baseInput('openai-chat-completions', {
+      imageAttachments: [{ imgId: 'img_1', dataUrl: 'data:image/png;base64,AAAA' }],
+    }), callbacks).promise;
+
+    const body = requestBodyOf(mock, 0) as { messages: Array<{ role: string; content: unknown }> };
+    const lastUser = [...body.messages].reverse().find(message => message.role === 'user');
+    expect(Array.isArray(lastUser?.content)).toBe(true);
+    expect(lastUser?.content).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'image_url' }),
+    ]));
+  });
+
   it('模型调用 propose_image_action 时直接产出提案，不执行 CDP 工具', async () => {
     const executor = vi.fn(async () => '不应被调用');
     const proposalArgs = {

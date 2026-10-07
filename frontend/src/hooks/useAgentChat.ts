@@ -25,6 +25,7 @@ import {
   describeImage,
   selfCheckImages,
   type StreamAgentHandle,
+  type AgentImageAttachment,
 } from '@/lib/agent-chat-client';
 import { isAutoSelfCheckEnabled, parseSelfCheckOutput } from '@/lib/nova-selfcheck';
 import type { AgentSelfCheck } from '@/lib/agent-chat-config';
@@ -277,6 +278,12 @@ async function resultImageToBlob(ref: string): Promise<Blob> {
  * 逼着 effect 每次渲染重挂；放外面才是它本来的语义。
  */
 const MEMORY_IDLE_MS = 3 * 60 * 1000;
+
+/**
+ * 每轮对话**直接发给模型看**的商品图上限（用它的多模态视觉）。
+ * 图越多 token 越贵、也越容易喧宾夺主；只带最近这几张非生成图即可。
+ */
+const AGENT_MAX_IMAGE_ATTACHMENTS = 4;
 
 export function useAgentChat(sessionId = 'default') {
   const sessionIdRef = useRef(sessionId);
@@ -1227,7 +1234,40 @@ export function useAgentChat(sessionId = 'default') {
     setPhase('idle');
   }, [appendMessage, isSessionCurrent]);
 
-  const runChat = useCallback((history: AgentMessage[], catalog: AgentImageRecord[]) => {
+  /**
+   * 组装「随本轮对话直接发给模型看」的商品图（用它的多模态视觉）：取目录里最近的几张非生成图，
+   * 缩图后转 dataURL。任一环节失败就跳过该张（退化为纯文本目录，不影响主流程）。
+   */
+  const collectImageAttachments = useCallback(async (
+    catalog: AgentImageRecord[],
+    sessionGeneration: number,
+  ): Promise<AgentImageAttachment[]> => {
+    const picked = catalog
+      .filter(image => image.source !== 'generated')
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, AGENT_MAX_IMAGE_ATTACHMENTS);
+    if (picked.length === 0) return [];
+    const out: AgentImageAttachment[] = [];
+    for (const image of picked) {
+      if (!isSessionCurrent(sessionGeneration)) return out;
+      try {
+        const bytes = await getAgentImageBase64(image.imgId, sessionIdRef.current, sessionGeneration);
+        if (!bytes) continue;
+        const rawDataUrl = `data:${bytes.mimeType};base64,${bytes.data}`;
+        // 只对大图缩（省视觉 token / 降 413 风险）；小图原样即可，也避免在无 canvas 环境里触发解码等待
+        const dataUrl = rawDataUrl.length > 400_000
+          ? await downscaleDataUrlForDescribe(rawDataUrl)
+          : rawDataUrl;
+        if (!isSessionCurrent(sessionGeneration)) return out;
+        out.push({ imgId: image.imgId, dataUrl });
+      } catch {
+        // 单张取不到就跳过，不阻塞
+      }
+    }
+    return out;
+  }, [isSessionCurrent]);
+
+  const runChat = useCallback(async (history: AgentMessage[], catalog: AgentImageRecord[]) => {
     const sessionGeneration = sessionGenerationRef.current;
     if (!isSessionCurrent(sessionGeneration)) return;
     let configured: ReturnType<typeof getAgentTextModelConfig>;
@@ -1249,6 +1289,10 @@ export function useAgentChat(sessionId = 'default') {
 
     let reasoningBuf = '';
 
+    // 把本轮相关的商品图直接发给模型（多模态），让它在「看着商品」的状态下写提示词
+    const imageAttachments = await collectImageAttachments(catalog, sessionGeneration);
+    if (!isSessionCurrent(sessionGeneration)) return;
+
     const handle = streamAgentChat(
       {
         apiKey: configured.apiKey,
@@ -1262,6 +1306,7 @@ export function useAgentChat(sessionId = 'default') {
           : undefined,
         catalog: catalog.map(img => ({ imgId: img.imgId, description: img.description })),
         modelCatalog,
+        imageAttachments,
       },
       {
         onDelta: token => {
@@ -1370,7 +1415,7 @@ export function useAgentChat(sessionId = 'default') {
       configured.baseUrl,
     );
     streamHandleRef.current = handle;
-  }, [appendMessage, appendStreamingToken, beginLiveMessage, cdpEnabled, cdpExecutor, dropLiveMessage, finishLiveMessage, flushAndCancelRaf, getAgentTextModelConfig, isSessionCurrent, persistStreamFailure, tickLiveMessage, webSearchEnabled]);
+  }, [appendMessage, appendStreamingToken, beginLiveMessage, cdpEnabled, cdpExecutor, collectImageAttachments, dropLiveMessage, finishLiveMessage, flushAndCancelRaf, getAgentTextModelConfig, isSessionCurrent, persistStreamFailure, tickLiveMessage, webSearchEnabled]);
 
   const sendMessage = useCallback(async (text: string, uploads: PendingUpload[], imageReferences?: string[]) => {
     const sessionGeneration = sessionGenerationRef.current;
@@ -1489,7 +1534,7 @@ export function useAgentChat(sessionId = 'default') {
     const fullHistory = [...messages, userMessage];
     const fullCatalog = [...images, ...uploadedRecords];
     const { history, catalog } = sliceActiveContext(fullHistory, fullCatalog);
-    runChat(history, catalog);
+    void runChat(history, catalog);
   }, [appendMessage, images, ingestImage, isSessionCurrent, messages, phase, ready, runChat]);
 
   /** 批量轮里自动续跑的次数上限——纯粹防失控兜底，不是业务规则 */
@@ -1514,7 +1559,7 @@ export function useAgentChat(sessionId = 'default') {
     appendMessage(userMessage);
     // appendMessage 已同步 messagesRef，这里直接用，不再手动拼 userMessage（否则会重复）
     const { history, catalog } = sliceActiveContext(messagesRef.current, imagesRef.current);
-    runChat(history, catalog);
+    void runChat(history, catalog);
     return true;
   }, [appendMessage, runChat]);
 
@@ -2426,7 +2471,7 @@ export function useAgentChat(sessionId = 'default') {
     setError(null);
 
     const { history, catalog } = sliceActiveContext(kept, images);
-    runChat(history, catalog);
+    void runChat(history, catalog);
   }, [messages, retryableMessageId, images, cleanupOrphanImages, flushAndCancelRaf, runChat]);
 
   // 组件卸载时清理：取消 rAF + 停止轮询/流式/描述，避免卸载后仍每 4s 轮询、

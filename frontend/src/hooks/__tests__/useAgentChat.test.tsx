@@ -926,7 +926,10 @@ describe('useAgentChat session binding', () => {
       onDone = callbacks.onDone;
       return { abort: vi.fn() };
     });
-    store.getAgentImageBase64.mockResolvedValueOnce(null);
+    // 按 imgId 区分：只有被引用的 remote-image 取不到（会话里的其它图正常）
+    store.getAgentImageBase64.mockImplementation(async (imgId: string) => (
+      imgId === 'remote-image' ? null : { data: 'AAAA', mimeType: 'image/png' }
+    ));
     taskClient.getNovaTask.mockResolvedValueOnce({ status: 'failed', error: 'unexpected text-to-image fallback' });
 
     const { result } = renderHook(() => useAgentChat('session-42'));

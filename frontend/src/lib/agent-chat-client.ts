@@ -59,6 +59,12 @@ export interface AgentCatalogEntry {
   productName?: string;
 }
 
+export interface AgentImageAttachment {
+  imgId: string;
+  /** data:image/...;base64,... */
+  dataUrl: string;
+}
+
 export interface StreamAgentInput {
   apiKey: string;
   model: string;
@@ -71,6 +77,11 @@ export interface StreamAgentInput {
   cdp?: boolean;
   /** CDP 工具执行器（一般由 useAgentChat 注入，负责把抓到的图片登记进图片目录） */
   cdpExecutor?: (name: string, args: Record<string, unknown>, onProgress?: (text: string) => void) => Promise<string>;
+  /**
+   * 随本轮对话**直接发给模型的相关商品图**（用它的多模态视觉）。
+   * 挂在最后一条用户消息上；目录里的文字描述只是补充。没有就退化为纯文本（旧行为）。
+   */
+  imageAttachments?: AgentImageAttachment[];
 }
 
 export interface StreamAgentCallbacks {
@@ -152,48 +163,108 @@ function buildInstructions(catalog: AgentCatalogEntry[], modelCatalog: AgentMode
   return instructions;
 }
 
-function buildInputMessages(history: AgentMessage[]) {
-  return history
-    .filter(message => message.role !== 'system-note' && message.role !== 'context-divider' && message.text.trim().length > 0)
-    .map(message => (
-      message.role === 'user'
-        ? { role: 'user' as const, content: [{ type: 'input_text' as const, text: message.text }] }
-        : { role: 'assistant' as const, content: [{ type: 'output_text' as const, text: message.text }] }
-    ));
+/** 目录里对模型可见的消息（与各 builder 的过滤条件保持一致） */
+function visibleHistory(history: AgentMessage[]): AgentMessage[] {
+  return history.filter(message =>
+    message.role !== 'system-note'
+    && message.role !== 'context-divider'
+    && message.text.trim().length > 0);
 }
 
-function buildChatMessages(history: AgentMessage[], instructions: string) {
+/** 最后一条用户消息的下标（图片就挂在这条上） */
+function lastUserIndex(visible: AgentMessage[]): number {
+  for (let i = visible.length - 1; i >= 0; i -= 1) {
+    if (visible[i].role === 'user') return i;
+  }
+  return -1;
+}
+
+/** 拆 dataURL → mime + base64（anthropic / gemini 要分开给） */
+function splitDataUrl(dataUrl: string): { mimeType: string; base64: string } {
+  const match = /^data:([^;,]+)?;base64,(.*)$/i.exec(dataUrl);
+  return match
+    ? { mimeType: match[1] || 'image/png', base64: match[2] }
+    : { mimeType: 'image/png', base64: dataUrl };
+}
+
+function buildInputMessages(history: AgentMessage[], attachments: AgentImageAttachment[] = []) {
+  const visible = visibleHistory(history);
+  const lastUser = lastUserIndex(visible);
+  return visible.map((message, index) => {
+    if (message.role === 'user') {
+      const content: Array<Record<string, unknown>> = [{ type: 'input_text' as const, text: message.text }];
+      if (index === lastUser) {
+        for (const attachment of attachments) {
+          content.push({ type: 'input_image' as const, image_url: attachment.dataUrl });
+        }
+      }
+      return { role: 'user' as const, content };
+    }
+    return { role: 'assistant' as const, content: [{ type: 'output_text' as const, text: message.text }] };
+  });
+}
+
+function buildChatMessages(history: AgentMessage[], instructions: string, attachments: AgentImageAttachment[] = []) {
+  const visible = visibleHistory(history);
+  const lastUser = lastUserIndex(visible);
   return [
     { role: 'system' as const, content: instructions },
-    ...history
-      .filter(message => message.role !== 'system-note' && message.role !== 'context-divider' && message.text.trim().length > 0)
-      .map(message => ({
+    ...visible.map((message, index) => {
+      if (message.role === 'user' && index === lastUser && attachments.length > 0) {
+        return {
+          role: 'user' as const,
+          content: [
+            { type: 'text' as const, text: message.text },
+            ...attachments.map(attachment => ({ type: 'image_url' as const, image_url: { url: attachment.dataUrl } })),
+          ],
+        };
+      }
+      return {
         role: message.role === 'user' ? 'user' as const : 'assistant' as const,
         content: message.text,
-      })),
+      };
+    }),
   ];
 }
 
-function buildAnthropicMessages(history: AgentMessage[]) {
-  return history
-    .filter(message => message.role !== 'system-note' && message.role !== 'context-divider' && message.text.trim().length > 0)
-    .map(message => ({
+function buildAnthropicMessages(history: AgentMessage[], attachments: AgentImageAttachment[] = []) {
+  const visible = visibleHistory(history);
+  const lastUser = lastUserIndex(visible);
+  return visible.map((message, index) => {
+    if (message.role === 'user' && index === lastUser && attachments.length > 0) {
+      const content: Array<Record<string, unknown>> = [{ type: 'text' as const, text: message.text }];
+      for (const attachment of attachments) {
+        const { mimeType, base64 } = splitDataUrl(attachment.dataUrl);
+        content.push({ type: 'image' as const, source: { type: 'base64' as const, media_type: mimeType, data: base64 } });
+      }
+      return { role: 'user' as const, content };
+    }
+    return {
       role: message.role === 'user' ? 'user' as const : 'assistant' as const,
       content: [{ type: 'text' as const, text: message.text }],
-    }));
+    };
+  });
 }
 
-function buildGeminiContents(history: AgentMessage[], instructions: string) {
+function buildGeminiContents(history: AgentMessage[], instructions: string, attachments: AgentImageAttachment[] = []) {
   const contents: Array<{ role: 'user' | 'model'; parts: Array<Record<string, unknown>> }> = [
     { role: 'user', parts: [{ text: instructions }] },
   ];
-  for (const message of history) {
-    if (message.role === 'system-note' || message.role === 'context-divider' || message.text.trim().length === 0) continue;
+  const visible = visibleHistory(history);
+  const lastUser = lastUserIndex(visible);
+  visible.forEach((message, index) => {
+    const parts: Array<Record<string, unknown>> = [{ text: message.text }];
+    if (message.role === 'user' && index === lastUser) {
+      for (const attachment of attachments) {
+        const { mimeType, base64 } = splitDataUrl(attachment.dataUrl);
+        parts.push({ inline_data: { mime_type: mimeType, data: base64 } });
+      }
+    }
     contents.push({
       role: message.role === 'user' ? 'user' : 'model',
-      parts: [{ text: message.text }],
+      parts,
     });
-  }
+  });
   return contents;
 }
 
@@ -411,17 +482,18 @@ function initConversationState(
   protocol: TextProviderProtocol,
   history: AgentMessage[],
   instructions: string,
+  attachments: AgentImageAttachment[] = [],
 ): ConversationState {
   if (protocol === 'openai-chat-completions') {
-    return { kind: 'chat', messages: buildChatMessages(history, instructions) as unknown as Array<Record<string, unknown>> };
+    return { kind: 'chat', messages: buildChatMessages(history, instructions, attachments) as unknown as Array<Record<string, unknown>> };
   }
   if (protocol === 'anthropic-messages') {
-    return { kind: 'anthropic', messages: buildAnthropicMessages(history) as unknown as Array<Record<string, unknown>> };
+    return { kind: 'anthropic', messages: buildAnthropicMessages(history, attachments) as unknown as Array<Record<string, unknown>> };
   }
   if (protocol === 'google-gemini') {
-    return { kind: 'gemini', contents: buildGeminiContents(history, instructions) };
+    return { kind: 'gemini', contents: buildGeminiContents(history, instructions, attachments) };
   }
-  return { kind: 'responses', input: buildInputMessages(history) as unknown as Array<Record<string, unknown>> };
+  return { kind: 'responses', input: buildInputMessages(history, attachments) as unknown as Array<Record<string, unknown>> };
 }
 
 function safeParseJsonObject(raw: string): Record<string, unknown> {
@@ -524,7 +596,7 @@ async function runAgentStream(
 ): Promise<void> {
   const cdpEnabled = Boolean(input.cdp && input.cdpExecutor);
   const instructions = buildInstructions(input.catalog, input.modelCatalog, cdpEnabled);
-  const conversation = initConversationState(input.protocol, input.history, instructions);
+  const conversation = initConversationState(input.protocol, input.history, instructions, input.imageAttachments ?? []);
   const model = input.model || AGENT_TEXT_MODEL_FALLBACK;
   const enableNativeWebSearch = Boolean(input.webSearch);
 
