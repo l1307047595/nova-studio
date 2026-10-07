@@ -489,6 +489,7 @@ docker push tianjiangqiji/nova-image-studio:latest
 | `NODE_ENV` | **是** | `production` | **必须为 `production`**，否则会走 Next dev 模式 |
 | `NOVA_TASK_DB` | 否 | `./nova-tasks.sqlite` | SQLite 文件路径（相对 `process.cwd()`）；建议 `./data/...` 或 Docker 下 `backend/data/...` |
 | `NOVA_IMAGE_DIR` | 否 | `./nova-images`（相对 `__dirname` 即 `backend/`） | 任务产物落盘目录；建议 `./data/nova-images` 或 Docker 下 `backend/data/nova-images` |
+| `NOVA_FRONTEND_DIR` | 否 | `frontend/out` | 后端托管的静态产物目录（绝对路径）。当 `frontend/out` 被其它进程占用导致构建失败时，可指到别处的构建产物（重启生效） |
 | `NOVA_TASK_CONCURRENCY` | 否 | `50` | 最大并发任务数（绝对上限 50） |
 | `NOVA_TASK_TTL_HOURS` | 否 | `12` | 任务清理时间（小时），超过该时间后任务和图片将被删除 |
 | `NOVA_MAX_QUEUE_SIZE` | 否 | `200` | 全局最大待处理任务数 |
@@ -508,7 +509,7 @@ docker push tianjiangqiji/nova-image-studio:latest
 | `NOVA_MEDIA_MAX_AUDIO_BYTES` | 否 | `15728640` | 参考音频单文件上限 |
 | `NOVA_PUBLIC_BASE_URL` | 视情况 | 按反代头推断 | 本服务的公网地址。上游要匿名拉取参考素材，**内网部署必须显式配置** |
 
-> `.env` 修改后大部分运行时配置**实时生效**（任务并发、限流、队列容量、接单开关、广场模式、素材体积上限），无需重启；`PORT`、`HOSTNAME`、`NODE_ENV`、`NOVA_TASK_DB`、`NOVA_IMAGE_DIR`、`NOVA_PLUGINS_DIR` 这类启动级配置仍需重启。
+> `.env` 修改后大部分运行时配置**实时生效**（任务并发、限流、队列容量、接单开关、广场模式、素材体积上限），无需重启；`PORT`、`HOSTNAME`、`NODE_ENV`、`NOVA_TASK_DB`、`NOVA_IMAGE_DIR`、`NOVA_FRONTEND_DIR`、`NOVA_PLUGINS_DIR` 这类启动级配置仍需重启。
 
 ---
 

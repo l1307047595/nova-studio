@@ -209,7 +209,8 @@ export function AgentMessageBubble({
     <div className={cn('flex gap-2.5 group/message', isUser && 'flex-row-reverse')}>
       <div className={cn(
         'flex h-7 w-7 shrink-0 items-center justify-center rounded-full',
-        isUser ? 'bg-foreground/10 text-foreground' : 'bg-primary/10 text-primary'
+        /* agent 用品牌浅橙做身份标识；user 保持中性 */
+        isUser ? 'bg-secondary text-muted-foreground' : 'bg-[var(--brand-soft)] text-[var(--brand-ink)]'
       )}>
         {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
       </div>
@@ -219,8 +220,10 @@ export function AgentMessageBubble({
           <AgentGenerationResult text={message.text} />
         ) : message.text ? (
           <div className={cn(
-            'rounded-2xl px-3.5 py-2.5 text-sm',
-            isUser ? 'min-w-0 max-w-full break-all rounded-tr-sm bg-primary text-primary-foreground whitespace-pre-wrap' : 'min-w-0 max-w-full break-words rounded-tl-sm bg-muted md-message'
+            'text-sm',
+            isUser
+              ? 'min-w-0 max-w-full break-all rounded-2xl rounded-tr-sm bg-secondary px-3.5 py-2.5 whitespace-pre-wrap'
+              : 'min-w-0 max-w-full break-words px-0.5 py-1 md-message'
           )}>
             {isUser ? message.text : <div ref={mdContentRef} dangerouslySetInnerHTML={{ __html: renderedMarkdown }} />}
           </div>

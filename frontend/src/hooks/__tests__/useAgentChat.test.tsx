@@ -690,6 +690,43 @@ describe('useAgentChat session binding', () => {
     expect(firstCall.mode).toBe('image-to-image');
   });
 
+  it('全部确认：当前 + 队列里的提案一次性提交（各建一个任务）', async () => {
+    let onDone!: (fullText: string, parsedProposal: ReturnType<typeof proposal>, parsedProposals?: ReturnType<typeof proposal>[]) => void;
+    client.streamAgentChat.mockImplementation((_request, callbacks) => {
+      onDone = callbacks.onDone;
+      return { abort: vi.fn() };
+    });
+    // 队列里第二条的参考图（img_b）必须真的在会话图片里，自动推进才会放行
+    store.loadAgentSession.mockResolvedValue({
+      messages: [],
+      images: [
+        { imgId: 'img_a', source: 'uploaded', thumbnail: 'data:image/png;base64,AA==', description: 'a', mimeType: 'image/png', createdAt: 1 },
+        { imgId: 'img_b', source: 'uploaded', thumbnail: 'data:image/png;base64,AA==', description: 'b', mimeType: 'image/png', createdAt: 2 },
+      ],
+      imageModel: null,
+    });
+    store.getAgentImageBase64.mockResolvedValue({ data: 'AAAA', mimeType: 'image/png' });
+    taskClient.createNovaTask.mockResolvedValueOnce('task-a').mockResolvedValueOnce('task-b');
+    taskClient.getNovaTask.mockResolvedValue({ status: 'processing' });
+
+    const { result } = renderHook(() => useAgentChat('batch-session'));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await act(async () => result.current.sendMessage('两个商品各出一张', [], []));
+
+    const p1 = proposal({ prompt: '商品A主图', productKey: 'a', productName: 'A' });
+    const p2 = proposal({ prompt: '商品B主图', productKey: 'b', productName: 'B', referencedImageIds: ['img_b'] });
+    act(() => onDone('', p1, [p1, p2]));
+    await waitFor(() => expect(result.current.phase).toBe('proposal'));
+    expect(result.current.proposalQueue).toHaveLength(1);
+
+    // 一键确认：应把当前 + 队列里的都提交，不再逐条手点
+    await act(async () => {
+      result.current.approveAllProposals('商品A主图', ['img_a'], 'image-model', resolvedLayout(), undefined);
+    });
+
+    await waitFor(() => expect(taskClient.createNovaTask).toHaveBeenCalledTimes(2));
+  });
+
   it('does not resurrect a task whose creation finishes after stopStreaming', async () => {
     let onDone!: (fullText: string, parsedProposal: ReturnType<typeof proposal>, parsedProposals?: ReturnType<typeof proposal>[]) => void;
     const task = deferred<string>();

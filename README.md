@@ -521,6 +521,7 @@ docker push tianjiangqiji/nova-image-studio:latest
 | `NODE_ENV` | **yes** | `production` | **Must be `production`**, otherwise Next dev mode kicks in |
 | `NOVA_TASK_DB` | no | `./nova-tasks.sqlite` | SQLite path (relative to `process.cwd()`); prefer `./data/...`, or `backend/data/...` under Docker |
 | `NOVA_IMAGE_DIR` | no | `./nova-images` (relative to `__dirname`, i.e. `backend/`) | Where task artifacts are written; prefer `./data/nova-images`, or `backend/data/nova-images` under Docker |
+| `NOVA_FRONTEND_DIR` | no | `frontend/out` | Static build directory served by the backend (absolute path). Useful when `frontend/out` is locked by another process during a build (restart) |
 | `NOVA_TASK_CONCURRENCY` | no | `50` | Max concurrent tasks (hard ceiling 50) |
 | `NOVA_TASK_TTL_HOURS` | no | `12` | Task lifetime in hours; tasks and images are deleted after this |
 | `NOVA_MAX_QUEUE_SIZE` | no | `200` | Global cap on pending tasks |
@@ -548,7 +549,7 @@ docker push tianjiangqiji/nova-image-studio:latest
 | `NOVA_CDP_DIR` | no | sibling `cdp-products` | Product-asset dump directory (restart) |
 | `NOVA_CHROME_PATH` | no | empty | Override Chrome executable path (restart) |
 
-> Most runtime settings take effect **immediately** after editing `.env` (concurrency, rate limits, queue size, accepting-new-tasks switch, gallery mode, media size limits). Startup-level settings — `PORT`, `HOSTNAME`, `NODE_ENV`, `NOVA_TASK_DB`, `NOVA_IMAGE_DIR`, `NOVA_PLUGINS_DIR` — still need a restart.
+> Most runtime settings take effect **immediately** after editing `.env` (concurrency, rate limits, queue size, accepting-new-tasks switch, gallery mode, media size limits). Startup-level settings — `PORT`, `HOSTNAME`, `NODE_ENV`, `NOVA_TASK_DB`, `NOVA_IMAGE_DIR`, `NOVA_FRONTEND_DIR`, `NOVA_PLUGINS_DIR` — still need a restart.
 
 ---
 

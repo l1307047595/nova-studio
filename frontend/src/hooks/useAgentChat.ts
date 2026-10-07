@@ -306,8 +306,12 @@ export function useAgentChat(sessionId = 'default') {
   const [images, setImages] = useState<AgentImageRecord[]>([]);
   const [proposal, setProposal] = useState<AgentProposal | null>(null);
   /** 当前提案之后等待展示的独立商品提案；用户确认/取消当前项后自动推进。 */
-  const [, setProposalQueue] = useState<AgentProposal[]>([]);
+  const [proposalQueue, setProposalQueue] = useState<AgentProposal[]>([]);
   const proposalQueueRef = useRef<AgentProposal[]>([]);
+  /** 「全部确认」：记住要沿用的模型/参数，队列推进时自动继续确认下一条 */
+  const autoApproveRestRef = useRef(false);
+  const autoApproveParamsRef = useRef<{ model: string; params: AgentResolvedLayout } | null>(null);
+  const autoApprovedProposalRef = useRef<AgentProposal | null>(null);
   /** 最近一条用户消息里的商品链接（归一化键）；非空表示当前处于「批量商品轮」，任务完成后允许自动续跑 */
   const userLinksRef = useRef<string[]>([]);
   /** 批量轮内已自动续跑的次数；上限只是防失控兜底，是否继续由模型对照原始需求自己判断 */
@@ -1123,6 +1127,8 @@ export function useAgentChat(sessionId = 'default') {
     record: AgentImageRecord,
     referenceIds: string[],
     sessionGeneration: number,
+    /** 本单要求（用户确认的提示词）：数量/件数以它为准，不拿参考图件数去卡 */
+    requirement: string = '',
   ): Promise<AgentSelfCheck | null> => {
     if (!isSessionCurrent(sessionGeneration)) return null;
     let configured: ReturnType<typeof getAgentTextModelConfig>;
@@ -1160,6 +1166,7 @@ export function useAgentChat(sessionId = 'default') {
         undefined,
         configured.baseUrl,
         complianceRules,
+        requirement,
       );
       if (!isSessionCurrent(sessionGeneration)) return null;
       parsed = parseSelfCheckOutput(text, { imageIds, model: configured.modelId });
@@ -1202,7 +1209,7 @@ export function useAgentChat(sessionId = 'default') {
       return skipped;
     }
 
-    return runSelfCheckForRecord(record, referenceIds, sessionGeneration);
+    return runSelfCheckForRecord(record, referenceIds, sessionGeneration, owner?.proposalData?.prompt || '');
   }, [patchImageSelfCheck, runSelfCheckForRecord]);
 
   const persistStreamFailure = useCallback((
@@ -1512,6 +1519,10 @@ export function useAgentChat(sessionId = 'default') {
   }, [appendMessage, runChat]);
 
   const cancelProposal = useCallback(() => {
+    // 用户主动取消 → 停掉「全部确认」的自动推进
+    autoApproveRestRef.current = false;
+    autoApproveParamsRef.current = null;
+    autoApprovedProposalRef.current = null;
     setProposal(null);
     setPhase('idle');
     // 取消时如果有待定分析，保存为一条助手消息供用户回顾
@@ -1783,7 +1794,7 @@ export function useAgentChat(sessionId = 'default') {
       // 出图后自动自检：不 await，图先给用户看，结果异步补写到图片上
       if (isAutoSelfCheckEnabled()) {
         for (const record of records) {
-          void runSelfCheckForRecord(record, data.selectedImageIds, sessionGeneration).catch(() => undefined);
+          void runSelfCheckForRecord(record, data.selectedImageIds, sessionGeneration, data.proposal.prompt).catch(() => undefined);
         }
       }
     } catch (error) {
@@ -2086,6 +2097,49 @@ export function useAgentChat(sessionId = 'default') {
     }
   }, [appendMessage, isGenerationTaskActive, isSessionCurrent, persistPendingGeneration, proposal, removePendingGenerationForTask, resumeGeneration]);
 
+  /**
+   * 「全部确认」：用当前卡片确认的提示词 / 参考图 / 模型 / 参数提交第一条，
+   * 之后队列里的每条提案按各自（模型已填好的）参考图自动继续提交，沿用同一模型的参数。
+   * 复用同一条 approveProposal，只是替用户省掉逐条点击。
+   */
+  const approveAllProposals = useCallback((
+    prompt: string,
+    selectedImageIds: string[],
+    model: string,
+    params: AgentResolvedLayout,
+    promptEn?: string,
+  ) => {
+    autoApproveRestRef.current = true;
+    autoApproveParamsRef.current = { model, params };
+    autoApprovedProposalRef.current = null;
+    void approveProposal(prompt, selectedImageIds, model, params, promptEn);
+  }, [approveProposal]);
+
+  // 「全部确认」的自动推进：当前提案确认后，队列里还有提案就继续确认下一条，直到队列清空
+  useEffect(() => {
+    if (!autoApproveRestRef.current) return;
+    // 回到 idle = 整批结束（全部提交完 / 出错）：撤掉自动确认标记
+    if (phase === 'idle') {
+      autoApproveRestRef.current = false;
+      autoApproveParamsRef.current = null;
+      autoApprovedProposalRef.current = null;
+      return;
+    }
+    if (phase !== 'proposal' || !proposal) return;
+    if (autoApprovedProposalRef.current === proposal) return;
+    const stored = autoApproveParamsRef.current;
+    if (!stored) { autoApproveRestRef.current = false; return; }
+    const ids = proposal.referencedImageIds.filter(id => imagesRef.current.some(img => img.imgId === id));
+    if (ids.length === 0) {
+      // 队列里这条没有可用参考图 → 停下交回用户手动确认（铁律：没有参考图不出图）
+      autoApproveRestRef.current = false;
+      autoApproveParamsRef.current = null;
+      return;
+    }
+    autoApprovedProposalRef.current = proposal;
+    void approveProposal(proposal.prompt, ids, stored.model, stored.params, proposal.promptEn);
+  }, [phase, proposal, approveProposal]);
+
   const stopStreaming = useCallback(() => {
     generationEpochRef.current += 1;
     streamHandleRef.current?.abort();
@@ -2148,6 +2202,9 @@ export function useAgentChat(sessionId = 'default') {
   // 清理上下文：插入一个分隔点，分隔点之前的对话与图片对模型不再可见，但界面保留可见。
   const clearContext = useCallback(() => {
     if (!mountedRef.current || phase !== 'idle') return;
+    autoApproveRestRef.current = false;
+    autoApproveParamsRef.current = null;
+    autoApprovedProposalRef.current = null;
     setMessages(prev => {
       const lastReal = [...prev].reverse().find(m => m.role !== 'context-divider');
       if (!lastReal) return prev;
@@ -2174,6 +2231,9 @@ export function useAgentChat(sessionId = 'default') {
   }, [phase]);
 
   const clearSession = useCallback(async () => {
+    autoApproveRestRef.current = false;
+    autoApproveParamsRef.current = null;
+    autoApprovedProposalRef.current = null;
     generationEpochRef.current += 1;
     sessionGenerationRef.current = invalidateAgentSession(sessionIdRef.current);
     streamHandleRef.current?.abort();
@@ -2392,6 +2452,7 @@ export function useAgentChat(sessionId = 'default') {
     messages,
     images,
     proposal,
+    proposalQueue,
     streamingText,
     streamingReasoning,
     imageModel,
@@ -2408,6 +2469,7 @@ export function useAgentChat(sessionId = 'default') {
     sendMessage,
     addReferenceImages,
     approveProposal,
+    approveAllProposals,
     cancelProposal,
     reeditProposal,
     withdrawTurn,

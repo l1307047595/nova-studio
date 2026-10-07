@@ -532,13 +532,22 @@ async function runAgentStream(
   // 跨轮累积的提案：模型常在同一轮里「边给商品 A 提案、边调用浏览器抓商品 B」，
   // 若只在收尾轮解析提案，早轮提案会被工具循环吃掉。
   const pendingProposals: AgentProposal[] = [];
-  // 铁律「生图必须以用户上传的参考图中的商品为基础」：空参考图的提案一律拦下，
-  // 并把原因回显到对话里（用户看得见，模型也会从历史里看到）。
+  // 铁律「生图必须以用户上传的参考图中的商品为基础」：目录里没有图时，空参考图提案会被拦下，
+  // 并把原因回显到对话里（用户看得见，模型也会从历史里看到）；目录里有图则放行给提案卡（见下）。
   const rejectedProposalNotes: string[] = [];
-  /** 铁律闸门：空参考图的提案一律拦下并记下原因；返回 null 表示不放行 */
+  /**
+   * 铁律闸门：空参考图的提案——
+   *   · 目录里**确实没有图**时：拦下并说明原因（没图就是不该出图）。
+   *   · 目录里**有图**时：放行给提案卡。模型漏填 referenced_image_ids 是常事，
+   *     而提案卡默认会勾上本会话上传的参考图（AgentProposalCard 的 initialSelectedIds）。
+   *     在这里直接丢弃会把这层「自动带图」误杀，逼用户回对话手动重传一遍——
+   *     用户反馈的「不会自己带参考图、总要手动上传」有一半出在这里。
+   * 最终拦截仍在 approveProposal（勾选为空才拦），铁律不打折。
+   */
+  const hasCatalogImages = input.catalog.length > 0;
   const gateProposal = (item: AgentProposal | null): AgentProposal | null => {
     if (!item) return null;
-    if (item.referencedImageIds.length === 0) {
+    if (item.referencedImageIds.length === 0 && !hasCatalogImages) {
       rejectedProposalNotes.push(
         '⚠️ 已拦下 1 条没有引用任何参考图的生成提案：生图必须以你上传的参考图中的商品为基础（零、铁律第 2 条）。请先上传该商品的参考图，或让我先从商品链接抓回商品图，再出提案。',
       );
@@ -953,9 +962,11 @@ export async function selfCheckImages(
   baseUrl: string = '',
   /** 本类目违禁词 / 合规词库（由调用方从本类目 identity 抽出来）。没有就只按通用红线判。 */
   bannedWords: string = '',
+  /** 本单要求（用户确认的提示词）：数量/件数、画面文案以它为准，不拿参考图件数去卡。 */
+  requirement: string = '',
 ): Promise<string> {
   return runAgentRequestWithRetry(
-    attemptSignal => requestMultiImageText(baseUrl, apiKey, model, protocol, imageDataUrls, attemptSignal, bannedWords),
+    attemptSignal => requestMultiImageText(baseUrl, apiKey, model, protocol, imageDataUrls, attemptSignal, bannedWords, requirement),
     signal,
     AGENT_SELF_CHECK_ATTEMPT_TIMEOUT_MS,
   );
@@ -969,12 +980,17 @@ async function requestMultiImageText(
   imageDataUrls: string[],
   signal: AbortSignal,
   bannedWords: string = '',
+  requirement: string = '',
 ): Promise<string> {
   const complianceBlock = bannedWords.trim()
     ? `\n\n═══ 本类目违禁词 / 合规词库（画面文字是否违规，只按这一份判断）═══\n${bannedWords.trim()}`
     : '\n\n═══ 未提供本类目违禁词表：画面文字违规项只在明显命中通用红线（暴力武器 / 品牌 IP / 医疗功效）时记录 ═══';
+  const requirementText = String(requirement || '').trim();
+  const requirementBlock = requirementText
+    ? `\n\n═══ 本单要求（数量 / 件数 / 画面文案以它为准，不要拿参考图件数去卡）═══\n${requirementText.slice(0, 1500)}`
+    : '\n\n═══ 本单要求：未提供 —— 无法把结果图的件数与「本单要求」比对，件数类问题一律不要记录 ═══';
   const parts = [
-    { type: 'text' as const, text: `${AGENT_SELF_CHECK_PROMPT}${complianceBlock}` },
+    { type: 'text' as const, text: `${AGENT_SELF_CHECK_PROMPT}${requirementBlock}${complianceBlock}` },
     ...imageDataUrls.map(url => ({ type: 'image' as const, imageDataUrl: url })),
   ];
   const body = buildSimpleProxyTextRequestBody(

@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Agent 对话页 · v3 · 浅色（聊天式 + 交付栏）</title>
+<style>
+  /* ══════════════════════════════════════════════════════════════
+     方向：浅色为主（商品图才是主角）· 结构 = 聊天式（即梦那种一句话一步）
+           + 右侧常驻「交付 / 待确认」栏（Claude Artifacts 的分栏）
+     强调色降级：主色用近黑（按钮/标题）；橙只留给"待你决策"和角标
+     参考：即梦（聊天流）· Weavy（左参数右结果）· 星流（浅色网格）
+           本页只走"聊天 + 右栏"，参数不铺开
+     ══════════════════════════════════════════════════════════════ */
+  :root {
+    --canvas:#f6f7f9;
+    --surface:#ffffff;
+    --sunken:#eff1f4;
+    --hover:#f2f4f7;
+    --line:rgba(16,24,40,.08);
+    --line-2:rgba(16,24,40,.14);
+    --ink:#14161a;
+    --ink-2:#3f4652;
+    --ink-3:#5b6470;
+    --ink-4:#8b93a0;
+    --primary:#16181d;        /* 主色：近黑 */
+    --acc:#fe8210;            /* 品牌橙：只做点缀 */
+    --acc-soft:rgba(254,130,16,.12);
+    --ok:#12915b;
+    --shadow:0 1px 2px rgba(16,24,40,.05), 0 6px 18px rgba(16,24,40,.06);
+    --shadow-sm:0 1px 2px rgba(16,24,40,.06);
+    --r:12px;
+    --sans:system-ui,-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+    --mono:ui-monospace,"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--canvas);color:var(--ink);font:13.5px/1.6 var(--sans);
+       -webkit-font-smoothing:antialiased;overflow:hidden}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+  .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-4)}
+
+  .app{display:flex;height:100dvh}
+
+  /* 图标栏 */
+  .rail{width:56px;flex:0 0 56px;background:var(--surface);border-right:1px solid var(--line);
+        display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:2px}
+  .mark{width:28px;height:28px;border-radius:8px;margin-bottom:12px;background:var(--acc);color:#fff;
+        display:grid;place-items:center;font-weight:700;font-size:13px}
+  .ico{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;color:var(--ink-4)}
+  .ico:hover{background:var(--hover);color:var(--ink-2)}
+  .ico.on{background:var(--sunken);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+
+  /* 顶栏 */
+  .main{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+  .bar{display:flex;align-items:center;gap:10px;padding:12px 20px;background:var(--surface);
+       border-bottom:1px solid var(--line)}
+  .seg{display:flex;gap:2px;background:var(--sunken);border-radius:10px;padding:3px}
+  .seg button{padding:6px 14px;border-radius:8px;font-size:13px;color:var(--ink-3)}
+  .seg button.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:var(--shadow-sm)}
+  .right{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .sess{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-3)}
+  .sess i{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+  .ghostbtn{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:9px;
+            font-size:12.5px;color:var(--ink-2);border:1px solid var(--line-2);background:var(--surface)}
+  .ghostbtn:hover{background:var(--hover)}
+  .badge{font-family:var(--mono);font-size:10px;padding:2px 6px;border-radius:5px;background:var(--acc);
+         color:#fff;font-weight:700}
+
+  .body{flex:1 1 auto;min-height:0;display:flex}
+  .col{display:flex;flex-direction:column;min-height:0;overflow:auto;scrollbar-width:thin}
+
+  /* 聊天流 */
+  .feed{flex:1 1 auto;padding:26px 30px 8px;max-width:920px}
+  .dividerline{display:flex;align-items:center;gap:10px;margin:0 0 20px;color:var(--ink-4)}
+  .dividerline::before,.dividerline::after{content:"";height:1px;background:var(--line);flex:1}
+
+  .me{display:flex;justify-content:flex-end;margin-bottom:24px}
+  .me .bub{background:var(--sunken);border-radius:14px 14px 4px 14px;padding:11px 14px;max-width:62%;
+           color:var(--ink)}
+  .me .shot{display:block;width:104px;height:104px;object-fit:cover;border-radius:10px;margin-top:10px;
+            border:1px solid var(--line-2)}
+
+  .bot{display:flex;gap:12px;margin-bottom:24px}
+  .bot .av{width:30px;height:30px;flex:0 0 30px;border-radius:50%;background:linear-gradient(150deg,#fe8210,#f2543c);
+           color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700}
+  .bot .txt{max-width:70ch;color:var(--ink-2)}
+  .bot .txt b{color:var(--ink)}
+
+  /* 交付卡 */
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);
+        overflow:hidden;margin-top:14px}
+  .card > .hd{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}
+  .card .name{font-size:13px;font-weight:600}
+  .card .meta{font-family:var(--mono);font-size:10.5px;color:var(--ink-4)}
+  .tabs{margin-left:auto;display:flex;gap:2px;background:var(--sunken);border-radius:8px;padding:2px}
+  .tabs button{padding:4px 10px;border-radius:6px;font-family:var(--mono);font-size:10.5px;color:var(--ink-4)}
+  .tabs button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-sm)}
+  .pane{display:none;padding:14px}
+  .pane.on{display:block}
+  .draft{background:var(--canvas);border:1px solid var(--line);border-radius:10px;padding:11px 12px;
+         color:var(--ink-2);outline:none;line-height:1.7}
+  .draft:focus{border-color:rgba(254,130,16,.55);background:#fff}
+  .en{font-family:var(--mono);font-size:11.5px;line-height:1.8;color:var(--ink-2);
+      background:var(--canvas);border:1px solid var(--line);border-radius:10px;padding:11px 12px;white-space:pre-wrap}
+  .en em{color:var(--ink-4);font-style:normal}
+  .refrow{display:flex;gap:14px;padding:12px 14px;border-top:1px solid var(--line);align-items:center}
+  .refrow img{width:64px;height:64px;object-fit:cover;border-radius:9px;border:1px solid var(--line-2)}
+  .refrow .kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:12px;color:var(--ink-3)}
+  .refrow .kv .k{font-family:var(--mono);font-size:10px;color:var(--ink-4);padding-top:2px}
+  .acts{display:flex;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid var(--line);
+        background:#fcfcfd}
+  .primary{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border-radius:10px;font-size:13px;
+           font-weight:600;background:var(--primary);color:#fff}
+  .primary:hover{background:#000}
+  .kbd{font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:4px;background:rgba(255,255,255,.18)}
+  .link{font-size:12.5px;color:var(--ink-3)}
+  .link:hover{color:var(--ink)}
+  .acts .note{margin-left:auto;font-size:11.5px;color:var(--ink-4)}
+
+  /* 出图结果：真实图 */
+  .results{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin:4px 0 18px}
+  .res{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--line);
+       background:var(--sunken);aspect-ratio:1/1;box-shadow:var(--shadow-sm)}
+  .res img{width:100%;height:100%;object-fit:cover;display:block}
+  .res .cap{position:absolute;left:9px;right:9px;bottom:9px;display:flex;justify-content:space-between;
+            gap:6px;font-size:11px;color:#fff;text-shadow:0 1px 3px rgba(0,0,0,.5)}
+  .res .tag{background:rgba(20,22,26,.62);border-radius:6px;padding:2px 6px;backdrop-filter:blur(3px)}
+  .res.run::after{content:"";position:absolute;inset:0;border-radius:12px;border:2px solid var(--acc)}
+  .sect{display:flex;align-items:center;gap:10px;margin:24px 0 10px}
+  .sect::after{content:"";flex:1;height:1px;background:var(--line)}
+
+  /* 输入区 */
+  .composer{padding:0 30px 22px;max-width:920px}
+  .memstrip{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border-radius:10px;
+            background:var(--surface);border:1px solid var(--line);margin-bottom:10px}
+  .chip{font-size:11.5px;padding:3px 9px;border-radius:999px;background:var(--sunken);color:var(--ink-3)}
+  .chip.hit{background:var(--acc-soft);color:#a1510a}
+  .inp{display:flex;align-items:flex-end;gap:10px;background:var(--surface);border:1px solid var(--line-2);
+       border-radius:14px;padding:11px 12px;box-shadow:var(--shadow-sm)}
+  .inp:focus-within{border-color:rgba(254,130,16,.55);box-shadow:0 0 0 3px var(--acc-soft)}
+  .inp .box{flex:1 1 auto;outline:none;min-height:22px;font-size:14px}
+  .inp .box:empty::before{content:attr(data-ph);color:var(--ink-4)}
+  .sq{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;color:var(--ink-3)}
+  .sq:hover{background:var(--hover);color:var(--ink)}
+  .sq.go{background:var(--primary);color:#fff}
+  .sq.go:hover{background:#000}
+
+  /* 右栏 */
+  .side{width:360px;flex:0 0 360px;background:var(--surface);border-left:1px solid var(--line);
+        display:flex;flex-direction:column}
+  .side > header{padding:16px 16px 0;border-bottom:1px solid var(--line)}
+  .h1{display:flex;align-items:baseline;gap:8px}
+  .h1 h2{margin:0;font-size:15px;font-weight:600}
+  .h1 .sub{font-size:11.5px;color:var(--ink-4)}
+  .filters{display:flex;gap:16px;margin-top:14px}
+  .filters button{font-size:12px;color:var(--ink-4);padding-bottom:11px}
+  .filters button.on{color:var(--ink);font-weight:600;box-shadow:inset 0 -2px 0 0 var(--acc)}
+  .rows{flex:1 1 auto;overflow:auto}
+  .qrow{display:flex;gap:11px;padding:16px 16px 17px}
+  .qrow + .qrow{border-top:1px solid var(--line)}
+  .qrow:hover{background:var(--hover)}
+  .qrow .dot{width:7px;height:7px;border-radius:50%;margin-top:6px;flex:0 0 7px;background:var(--ink-4)}
+  .qrow[data-k="rule"] .dot{background:var(--acc)}
+  .qrow .line{font-size:13.5px;line-height:1.5;color:var(--ink)}
+  .qrow .sub{margin-top:7px;font-family:var(--mono);font-size:10.5px;color:var(--ink-4);
+             display:flex;gap:8px;flex-wrap:wrap}
+  .qrow .acts{display:flex;gap:6px;margin-top:8px;opacity:0;transition:opacity .15s}
+  .qrow:hover .acts{opacity:1}
+  .mini{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:13px;
+        border:1px solid var(--line-2);color:var(--ink-3);background:var(--surface)}
+  .mini.yes:hover{border-color:rgba(18,145,91,.5);color:#0e7a4d;background:#eaf7f1}
+  .mini.no:hover{border-color:rgba(214,61,45,.5);color:#b9382c;background:#fdeeec}
+  .why{display:none;gap:6px;margin-top:9px}
+  .qrow.open .why{display:flex}
+  .why input{flex:1 1 auto;background:var(--canvas);border:1px solid var(--line);border-radius:8px;
+             padding:7px 9px;font:12px var(--sans);color:var(--ink-2);outline:none}
+  .why input:focus{border-color:rgba(214,61,45,.5)}
+  .why button{font-size:11.5px;padding:7px 10px;border-radius:8px;border:1px solid rgba(214,61,45,.45);color:#b9382c}
+  .side > footer{border-top:1px solid var(--line);padding:12px 16px 14px}
+  .submit{width:100%;display:flex;align-items:center;justify-content:center;gap:9px;padding:10px 12px;
+          border-radius:10px;font-size:13px;font-weight:600;background:var(--primary);color:#fff}
+  .submit:hover{background:#000}
+  .submit .kbd{background:rgba(255,255,255,.18)}
+  .sw{display:flex;align-items:center;gap:8px;margin-top:11px;font-size:11.5px;color:var(--ink-4)}
+  .sw .track{margin-left:auto;width:32px;height:18px;border-radius:999px;background:#dfe3e8;position:relative;
+             transition:background .18s}
+  .sw .track::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+                    background:#fff;box-shadow:var(--shadow-sm);transition:transform .18s}
+  .sw.on .track{background:var(--acc)}
+  .sw.on .track::after{transform:translateX(14px)}
+
+  .flash{position:fixed;left:50%;bottom:24px;transform:translate(-50%,10px);background:var(--primary);
+         color:#fff;border-radius:10px;padding:9px 14px;font-size:12.5px;box-shadow:var(--shadow);
+         opacity:0;pointer-events:none;transition:opacity .18s,transform .18s}
+  .flash.on{opacity:1;transform:translate(-50%,0)}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="rail">
+    <div class="mark">N</div>
+    <button class="ico on" title="Agent 对话"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5.5h16v10.5H9l-5 4z"/></svg></button>
+    <button class="ico" title="生图工作台"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M4 15.5l4.5-4 3.5 2.5 3-2.5 5 5"/></svg></button>
+    <button class="ico" title="我的素材"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="4.5" width="7" height="7" rx="2"/><rect x="13.5" y="4.5" width="7" height="7" rx="2"/><rect x="3.5" y="14.5" width="7" height="5" rx="2"/><rect x="13.5" y="14.5" width="7" height="5" rx="2"/></svg></button>
+    <button class="ico" title="设置" style="margin-top:auto"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.2M12 18.3v2.2M4.8 12H7M17 12h2.2M6.9 6.9l1.6 1.6M15.5 15.5l1.6 1.6M17.1 6.9l-1.6 1.6M8.5 15.5l-1.6 1.6"/></svg></button>
+  </nav>
+
+  <div class="main">
+    <header class="bar">
+      <div class="seg" id="catseg">
+        <button class="on" data-cat>捏捏乐</button><button data-cat>美妆</button><button data-cat>通用</button>
+      </div>
+      <button class="ghostbtn">＋ 新建类目</button>
+      <div class="right">
+        <div class="sess"><i></i> 包子捏捏 · 第 3 单</div>
+        <button class="ghostbtn" id="toQueue">记忆 <span class="badge" id="badge">3</span></button>
+      </div>
+    </header>
+
+    <div class="body">
+      <div class="col" style="flex:1 1 auto">
+        <div class="feed">
+          <div class="dividerline"><span class="lbl">会话开始 · 已注入本类目记忆 identity 8.4k + 命中 2 条</span></div>
+
+          <div class="me">
+            <div class="bub">照着这张图出一组套图，主图强调「四件套」。<img class="shot" src="assets/bao-ref.png" alt="参考图"></div>
+          </div>
+
+          <div class="bot">
+            <div class="av">N</div>
+            <div class="txt">
+              读图：<b>四色包子捏捏（黄/绿/白/紫）</b>，哑光慢回弹，白底无印刷字，食品造型。<br>
+              本单主张 <b>「四件成套，慢回弹看得见」</b>，机制用整齐排列 + 手捏特写，依据：件数与组合。
+            </div>
+          </div>
+
+          <!-- 交付卡 -->
+          <div class="card">
+            <div class="hd">
+              <span class="name">提案 1 / 4 · 主图</span>
+              <span class="meta">1:1 · 参考图 1 张 · 中英逐句对应</span>
+              <div class="tabs"><button class="on" data-pane="zh">中文稿</button><button data-pane="en">EN 生图版</button></div>
+            </div>
+            <div class="pane on" id="pane-zh">
+              <div class="draft" contenteditable="true" spellcheck="false">四只包子造型捏捏呈 2×2 整齐排列于白色圆盘，浅色背景带柔和光斑与泡泡；每只颜色区分明确，表情朝向镜头；文字只保留产品名与件数，位置居中偏上。</div>
+            </div>
+            <div class="pane" id="pane-en">
+              <div class="en">Four bun-shaped squeeze toys arranged in a tidy 2x2 grid on a white plate, soft light spots and bubbles in a pale background, each piece a distinct color, faces toward camera, product name and piece count only, centered upper area, square 1:1, ultra-detailed e-commerce quality.  <em>//　发给生图模型的是这一份</em></div>
+            </div>
+            <div class="refrow">
+              <img src="assets/bao-ref.png" alt="参考图">
+              <div class="kv">
+                <span class="k">参考图</span><span>bao-ref.png · 唯一商品基准，造型与配色照它</span>
+                <span class="k">模型</span><span>gpt-image-2 · 走图生图</span>
+                <span class="k">记忆</span><span>命中「套装居中对称陈列」「价格贴不压商品名」</span>
+              </div>
+            </div>
+            <div class="acts">
+              <button class="primary" id="gen">确认并生图 <span class="kbd">⌘↵</span></button>
+              <button class="link">调整提案</button>
+              <button class="link">取消</button>
+              <span class="note">未确认不会发出生图请求</span>
+            </div>
+          </div>
+
+          <div class="sect"><span class="lbl">本轮出图 · 4 张</span></div>
+          <div class="results">
+            <div class="res"><img src="assets/bao-main.png" alt="主图"><div class="cap"><span class="tag">主图</span><span class="tag">已完成</span></div></div>
+            <div class="res"><img src="assets/bao-promo1.png" alt="宣传图1"><div class="cap"><span class="tag">宣传图1</span><span class="tag">已完成</span></div></div>
+            <div class="res"><img src="assets/bao-promo2.png" alt="宣传图2"><div class="cap"><span class="tag">宣传图2</span><span class="tag">已完成</span></div></div>
+            <div class="res"><img src="assets/bao-usage.png" alt="实际使用图"><div class="cap"><span class="tag">实际使用图</span><span class="tag">已完成</span></div></div>
+          </div>
+
+          <div class="sect"><span class="lbl">自检 · 出图前扫过</span></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <span class="chip">禁词扫描 通过</span>
+            <span class="chip">参考图原文复用 0 处</span>
+            <span class="chip">同一单一致性 通过</span>
+            <span class="chip hit">主图 · 底部安全区 已提醒</span>
+          </div>
+        </div>
+
+        <div class="composer">
+          <div class="memstrip" id="memstrip">
+            <span class="lbl">本轮记忆</span>
+            <span class="chip">identity 8.4k</span>
+            <span class="chip hit">命中 · 套装居中对称陈列</span>
+            <span class="chip hit">命中 · 价格贴不压商品名</span>
+            <span style="margin-left:auto;font-size:11.5px;color:var(--ink-4)">对话中途不读不写 · 空闲 3 分钟才起草</span>
+          </div>
+          <div class="inp">
+            <button class="sq" title="上传图片"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V5"/><path d="M8 9l4-4 4 4"/><path d="M4 16.5v1.5A2 2 0 0 0 6 20h12a2 2 0 0 0 2-2v-1.5"/></svg></button>
+            <div class="box" id="box" contenteditable="true" data-ph="说要什么图型、几张、什么风格（有新图上传时会重新读一次记忆）"></div>
+            <button class="sq go" id="send"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V6"/><path d="M6 11l6-6 6 6"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右栏：交付 / 待确认 -->
+      <aside class="side" id="side">
+        <header>
+          <div class="h1"><h2>记忆</h2><span class="sub"><span data-cat>捏捏乐</span> · 本类目独立，不与其它互通</span></div>
+          <div class="filters">
+            <button class="on">待确认 <span id="qnum">3</span></button>
+            <button>规则</button><button>纠错</button><button>案例</button>
+          </div>
+        </header>
+        <div class="rows" id="rows">
+          <div class="qrow" data-k="fix">
+            <span class="dot"></span>
+            <div style="flex:1 1 auto;min-width:0">
+              <div class="line">价格贴不得压住商品名</div>
+              <div class="sub"><span>#主图</span><span>空闲心跳 18:32</span></div>
+              <div class="acts"><button class="mini yes" data-act="yes">✓</button><button class="mini no" data-act="no">✕</button></div>
+            </div>
+          </div>
+          <div class="qrow" data-k="lib">
+            <span class="dot"></span>
+            <div style="flex:1 1 auto;min-width:0">
+              <div class="line">套装图用居中对称陈列</div>
+              <div class="sub"><span>#套装</span><span>空闲心跳 18:32</span></div>
+              <div class="acts"><button class="mini yes" data-act="yes">✓</button><button class="mini no" data-act="no">✕</button></div>
+            </div>
+          </div>
+          <div class="qrow open" data-k="rule">
+            <span class="dot"></span>
+            <div style="flex:1 1 auto;min-width:0">
+              <div class="line">主图底部保留 ≥8% 纯空白</div>
+              <div class="sub"><span>#主图</span><span>待采纳 → 规则区</span><span>同类坑复发 3 次</span></div>
+              <div class="why">
+                <input placeholder="驳回要写一句理由（会回流给 AI）" id="whyInput">
+                <button data-act="no">驳回</button>
+              </div>
+              <div class="acts"><button class="mini yes" data-act="yes">✓</button><button class="mini no" data-act="no">✕</button></div>
+            </div>
+          </div>
+        </div>
+        <footer>
+          <button class="submit" id="submitAll">写入全部 3 条 <span class="kbd">⌘⏎</span></button>
+          <div class="sw" id="sw"><span>会话状态自动写入 · 默认关</span><span class="track"></span></div>
+        </footer>
+      </aside>
+    </div>
+  </div>
+</div>
+<div class="flash" id="flash"></div>
+
+<script>
+  const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+  let t; function flash(m){const e=$('#flash');e.textContent=m;e.classList.add('on');
+    clearTimeout(t);t=setTimeout(()=>e.classList.remove('on'),1800)}
+
+  $$('.seg button[data-cat]').forEach(b=>b.addEventListener('click',()=>{
+    $$('.seg button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+    $$('[data-cat]').forEach(s=>{ if(s.tagName!=='BUTTON') s.textContent=b.textContent; });
+    flash('已切到 '+b.textContent+' · 记忆与对话整套切换');
+  }));
+  $$('.tabs button').forEach(b=>b.addEventListener('click',()=>{
+    $$('.tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+    $('#pane-zh').classList.toggle('on', b.dataset.pane==='zh');
+    $('#pane-en').classList.toggle('on', b.dataset.pane==='en');
+  }));
+  function refresh(){
+    const n=$$('#rows .qrow:not(.done)').length;
+    $('#badge').textContent=n; $('#qnum').textContent=n;
+    $('#submitAll').innerHTML = n? '写入全部 '+n+' 条 <span class="kbd">⌘⏎</span>' : '暂无待确认';
+  }
+  function settle(row,msg){
+    row.classList.add('done'); row.style.transition='opacity .18s'; row.style.opacity='0';
+    setTimeout(()=>{row.style.display='none';refresh()},200); flash(msg);
+  }
+  $('#rows').addEventListener('click', e=>{
+    const row=e.target.closest('.qrow'); if(!row) return;
+    const btn=e.target.closest('.mini, .why button');
+    if(!btn){ row.classList.toggle('open'); return; }
+    if(btn.dataset.act==='yes'){ settle(row, row.dataset.k==='rule'?'已采纳进规则区':'已写入本类目记忆'); return; }
+    const inp=row.querySelector('.why input');
+    if(row.classList.contains('open') && inp && !inp.value.trim()){ inp.focus(); flash('驳回要写一句理由，会回流给 AI'); return; }
+    settle(row,'已驳回 · 理由已记，之后不再重复提');
+  });
+  $('#submitAll').addEventListener('click',()=>{
+    const list=$$('#rows .qrow:not(.done)');
+    if(!list.length) return flash('没有待确认的条目');
+    list.forEach((r,i)=>setTimeout(()=>settle(r,'已写入 1 条'),i*160));
+  });
+  $('#box').addEventListener('focus',()=>{$('#memstrip').style.boxShadow='0 0 0 3px var(--acc-soft)'});
+  $('#box').addEventListener('blur',()=>{$('#memstrip').style.boxShadow='none'});
+  $('#sw').addEventListener('click',function(){this.classList.toggle('on');
+    flash(this.classList.contains('on')?'会话状态改为自动写入':'会话状态仍需你确认')});
+  $('#gen').addEventListener('click',()=>flash('已提交生成 · 4 张，逐张出图'));
+  $('#send').addEventListener('click',()=>flash('样品演示：不发真实请求'));
+  $('#toQueue').addEventListener('click',()=>$('#side').scrollIntoView({block:'nearest',behavior:'smooth'}));
+  refresh();
+</script>
+</body>
+</html>

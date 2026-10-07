@@ -1,0 +1,1994 @@
+{
+ "slide_size": "16:9",
+ "slides": [
+  {
+   "layout": "blank",
+   "background": "0E1116",
+   "bullets": [
+    {
+     "text": "Nova Studio",
+     "size": 20,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "三个功能，一次讲清",
+     "size": 40,
+     "color": "FFFFFF",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "Agent 记忆 · 提交自检 · 在线套图",
+     "size": 22,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "",
+     "size": 10,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "培训对象：运营 / 出图同事",
+     "size": 15,
+     "color": "C6D0DE",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "配套：装上 Nova Studio HK，三个类目已就绪",
+     "size": 15,
+     "color": "C6D0DE",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 3.02,
+     "width": 6.4,
+     "height": 0.07,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0,
+     "width": 13.333,
+     "height": 0.9,
+     "fill": "161B24",
+     "text": "Nova Studio 功能培训",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 7.24,
+     "width": 13.333,
+     "height": 0.26,
+     "fill": "161B24"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 11.2,
+     "top": 1.6,
+     "width": 1.45,
+     "height": 0.7,
+     "fill": "1B2130",
+     "text": "HK 版",
+     "text_color": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 6.28,
+     "fill": "1B2130"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 1.1,
+     "fill": "FE8210"
+    }
+   ],
+   "notes": "开场：今天只讲三件事——它怎么记住你的类目要求、出图前它自己会扫什么、以及一张商品图怎么变成一组套图。全程你们只要记两条动作：审中文稿、点确认记忆。"
+  },
+  {
+   "layout": "blank",
+   "background": "0E1116",
+   "bullets": [
+    {
+     "text": "今天讲三件事",
+     "size": 14,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "它在替你做哪三件事",
+     "size": 30,
+     "color": "FFFFFF",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "",
+     "size": 8,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "一、Agent 记忆 —— 你的类目规则、踩过的坑、通过版案例，它记在本地并按需调用",
+     "size": 17,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "二、提交自检 —— 出图前它自己先扫：识图字段、判据推导、禁词与一致性",
+     "size": 17,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "三、在线套图 —— 一张参考图 → 中文稿给你审 → 英文稿给模型 → 逐张出图",
+     "size": 17,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "",
+     "size": 8,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "你只做两件事：审中文稿、点确认记忆",
+     "size": 16,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "其余（读图、推导、扫词、记账、沉淀）都由它自己跑",
+     "size": 14,
+     "color": "C6D0DE",
+     "bold": false,
+     "level": 1,
+     "font": "Microsoft YaHei"
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0,
+     "width": 13.333,
+     "height": 0.9,
+     "fill": "161B24",
+     "text": "Nova Studio 功能培训",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0.9,
+     "width": 13.333,
+     "height": 0.06,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 7.24,
+     "width": 13.333,
+     "height": 0.26,
+     "fill": "161B24"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 11.55,
+     "top": 1.5,
+     "width": 1.1,
+     "height": 0.66,
+     "fill": "1B2130",
+     "text": "01",
+     "text_color": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 6.28,
+     "fill": "1B2130"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 1.1,
+     "fill": "FE8210"
+    }
+   ],
+   "notes": "三个模块各 3～4 页。先讲记忆，因为后面两个模块都靠它。"
+  },
+  {
+   "layout": "blank",
+   "background": "0E1116",
+   "bullets": [
+    {
+     "text": "模块一",
+     "size": 18,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "Agent 记忆",
+     "size": 40,
+     "color": "FFFFFF",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "它记得住，但不会自己乱记",
+     "size": 20,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 2.72,
+     "width": 5.2,
+     "height": 0.07,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0,
+     "width": 13.333,
+     "height": 0.9,
+     "fill": "161B24",
+     "text": "模块一 · Agent 记忆",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 7.24,
+     "width": 13.333,
+     "height": 0.26,
+     "fill": "161B24"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 11.55,
+     "top": 1.5,
+     "width": 1.1,
+     "height": 0.66,
+     "fill": "1B2130",
+     "text": "01",
+     "text_color": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 6.28,
+     "fill": "1B2130"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 1.1,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 0.5,
+     "top": 4.62,
+     "width": 2.3,
+     "height": 0.62,
+     "fill": "1B2130",
+     "text": "记忆结构",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 2.95,
+     "top": 4.62,
+     "width": 2.3,
+     "height": 0.62,
+     "fill": "1B2130",
+     "text": "读写时机",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 5.4,
+     "top": 4.62,
+     "width": 2.3,
+     "height": 0.62,
+     "fill": "1B2130",
+     "text": "写入判据",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 7.85,
+     "top": 4.62,
+     "width": 2.3,
+     "height": 0.62,
+     "fill": "1B2130",
+     "text": "面板·复盘",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 10.3,
+     "top": 4.62,
+     "width": 2.3,
+     "height": 0.62,
+     "fill": "1B2130",
+     "text": "类目隔离",
+     "text_color": "C6D0DE"
+    }
+   ],
+   "notes": "先讲记忆，因为自检和套图都依赖它：记忆定的是「这个类目该怎么画」。"
+  },
+  {
+   "layout": "blank",
+   "background": "0E1116",
+   "bullets": [
+    {
+     "text": "记忆结构",
+     "size": 14,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "记忆分三层，各管各的",
+     "size": 30,
+     "color": "FFFFFF",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "",
+     "size": 8,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "① 规则层 identity.md —— 你写（AI 只读）· 每轮全量注入",
+     "size": 17,
+     "color": "E6ECF5",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "类目身份、色板、图型、违禁词库、写法 —— 「这类商品该怎么画」",
+     "size": 14,
+     "color": "C6D0DE",
+     "bold": false,
+     "level": 1,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "② 采纳规则 R-0001… —— AI 提议 → 你采纳 · 带编号、可统计效力",
+     "size": 17,
+     "color": "E6ECF5",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "③ 条目层 feedback / library —— AI 起草 → 你确认 · 按命中选择性注入",
+     "size": 17,
+     "color": "E6ECF5",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "纠错（以后该怎么做）与通过版案例（做法 + 适用条件）",
+     "size": 14,
+     "color": "C6D0DE",
+     "bold": false,
+     "level": 1,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "④ 会话状态 sessions/<会话>.md —— 这一单做到哪一步，只在本会话注入",
+     "size": 17,
+     "color": "E6ECF5",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0,
+     "width": 13.333,
+     "height": 0.9,
+     "fill": "161B24",
+     "text": "模块一 · Agent 记忆",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0.9,
+     "width": 13.333,
+     "height": 0.06,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 7.24,
+     "width": 13.333,
+     "height": 0.26,
+     "fill": "161B24"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 11.55,
+     "top": 1.5,
+     "width": 1.1,
+     "height": 0.66,
+     "fill": "1B2130",
+     "text": "02",
+     "text_color": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 6.28,
+     "fill": "1B2130"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 1.1,
+     "fill": "FE8210"
+    }
+   ],
+   "notes": "强调分层：常驻注入的只有规则层（稳定、小）；纠错和案例靠命中才进上下文，不会把上下文撑爆。"
+  },
+  {
+   "layout": "blank",
+   "background": "0E1116",
+   "bullets": [
+    {
+     "text": "关键规则",
+     "size": 14,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "什么时候读、什么时候写",
+     "size": 30,
+     "color": "FFFFFF",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "",
+     "size": 8,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "读记忆：只在两个时点 —— ① 会话开始　② 每次有新图上传",
+     "size": 18,
+     "color": "E6ECF5",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "对话进行中不读、不写（防止上下文漂移，规则换成脏的）",
+     "size": 14,
+     "color": "C6D0DE",
+     "bold": false,
+     "level": 1,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "写记忆：空闲 3 分钟且队列没有出图任务 → AI 起草 → 进「待确认」",
+     "size": 18,
+     "color": "E6ECF5",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "你不点确认，一个字都不落盘；驳回即丢弃，并进黑名单不再重复提",
+     "size": 14,
+     "color": "C6D0DE",
+     "bold": false,
+     "level": 1,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "",
+     "size": 8,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "所以：改了规则文件 → 下一次会话（或传新图）才生效",
+     "size": 16,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0,
+     "width": 13.333,
+     "height": 0.9,
+     "fill": "161B24",
+     "text": "模块一 · Agent 记忆",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0.9,
+     "width": 13.333,
+     "height": 0.06,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 7.24,
+     "width": 13.333,
+     "height": 0.26,
+     "fill": "161B24"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 11.55,
+     "top": 1.5,
+     "width": 1.1,
+     "height": 0.66,
+     "fill": "1B2130",
+     "text": "03",
+     "text_color": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 6.28,
+     "fill": "1B2130"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 1.1,
+     "fill": "FE8210"
+    }
+   ],
+   "notes": "最容易踩的误会：在对话中途改了 memory 文件，期待它马上按新规则走 —— 不会。按设计，改动在下一个读点生效。"
+  },
+  {
+   "layout": "blank",
+   "background": "0E1116",
+   "bullets": [
+    {
+     "text": "写入判据",
+     "size": 14,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "什么才值得写进记忆",
+     "size": 30,
+     "color": "FFFFFF",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "",
+     "size": 8,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "三条硬判据（必须同时满足）",
+     "size": 17,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "① 可复用　② 有依据（你说的 / 出图出的）　③ 是经验，不是复述",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "一律禁写",
+     "size": 17,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "提示词正文与画面描述 · 图内英文原文与品牌词 · 闲聊与推理 · 半截话",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "代码侧还有一道硬门（不信任模型自律）",
+     "size": 17,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "太短/太长 · 半截话 · 英文占比 >50% · 没带标签 · 与已有记忆重复 → 直接丢",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0,
+     "width": 13.333,
+     "height": 0.9,
+     "fill": "161B24",
+     "text": "模块一 · Agent 记忆",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0.9,
+     "width": 13.333,
+     "height": 0.06,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 7.24,
+     "width": 13.333,
+     "height": 0.26,
+     "fill": "161B24"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 11.55,
+     "top": 1.5,
+     "width": 1.1,
+     "height": 0.66,
+     "fill": "1B2130",
+     "text": "04",
+     "text_color": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 6.28,
+     "fill": "1B2130"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 1.1,
+     "fill": "FE8210"
+    }
+   ],
+   "notes": "为什么要有这道门：早期心跳沉淀把「整段提示词」和「图里的英文文案」当成经验写进来了 —— 那不是记忆，是产物。现在提示词 + 代码两道过滤，不合格的直接丢，且会给出 filtered 计数便于观察。"
+  },
+  {
+   "layout": "blank",
+   "background": "0E1116",
+   "bullets": [
+    {
+     "text": "你手上的入口",
+     "size": 14,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "记忆面板 · 上限保护 · 复盘",
+     "size": 30,
+     "color": "FFFFFF",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "",
+     "size": 8,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "「记忆」按钮：规则 / 纠错 / 案例 · 色板 / 规则建议 / 会话状态 五个页签",
+     "size": 17,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "可看、可改、可删；规则 AI 改不了，你改",
+     "size": 14,
+     "color": "C6D0DE",
+     "bold": false,
+     "level": 1,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "上限保护（超了会被挡，不是静默丢）",
+     "size": 17,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "单条 800 字符 · 命中注入 8 条 / 6000 字符 · 规则 32768 字符",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "规则会退役 + 定期复盘",
+     "size": 17,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "复发 ≥3 次标「待修订」· 采纳满 14 天零引用标「待复核」",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "累计新增 15 条 → 提醒复盘 → AI 起草该升级的规则 → 你采纳进规则",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0,
+     "width": 13.333,
+     "height": 0.9,
+     "fill": "161B24",
+     "text": "模块一 · Agent 记忆",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0.9,
+     "width": 13.333,
+     "height": 0.06,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 7.24,
+     "width": 13.333,
+     "height": 0.26,
+     "fill": "161B24"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 11.55,
+     "top": 1.5,
+     "width": 1.1,
+     "height": 0.66,
+     "fill": "1B2130",
+     "text": "05",
+     "text_color": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 6.28,
+     "fill": "1B2130"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 1.1,
+     "fill": "FE8210"
+    }
+   ],
+   "notes": "面板是你的巡检入口：每周花两分钟看一次「待修订 / 待复核」，比攒半年再翻要好。复盘的作用是让纠错升级成规则，否则 feedback 会无限膨胀。"
+  },
+  {
+   "layout": "blank",
+   "background": "0E1116",
+   "bullets": [
+    {
+     "text": "隔离",
+     "size": 14,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "三个类目，三套独立记忆",
+     "size": 30,
+     "color": "FFFFFF",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "",
+     "size": 8,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "工作类目下拉框：捏捏乐 / 美妆 / 通用",
+     "size": 18,
+     "color": "E6ECF5",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "切类目 = 记忆 + 会话 + 对话记录整套切换，互不可见、没有公共层",
+     "size": 15,
+     "color": "C6D0DE",
+     "bold": false,
+     "level": 1,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "为什么不做公共层：各品类违禁词与红线本来就不同",
+     "size": 17,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "边界（谁不能做什么）",
+     "size": 17,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "AI 只读规则，改规则只能写「规则建议」等你采纳",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "违禁词改动只能你手改，AI 不许动",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0,
+     "width": 13.333,
+     "height": 0.9,
+     "fill": "161B24",
+     "text": "模块一 · Agent 记忆",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0.9,
+     "width": 13.333,
+     "height": 0.06,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 7.24,
+     "width": 13.333,
+     "height": 0.26,
+     "fill": "161B24"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 11.55,
+     "top": 1.5,
+     "width": 1.1,
+     "height": 0.66,
+     "fill": "1B2130",
+     "text": "06",
+     "text_color": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 6.28,
+     "fill": "1B2130"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 1.1,
+     "fill": "FE8210"
+    }
+   ],
+   "notes": "如果发现「它没按新类目走」——先看下拉框是不是切过去了。三个类目各自的记忆目录完全不同。"
+  },
+  {
+   "layout": "blank",
+   "background": "0E1116",
+   "bullets": [
+    {
+     "text": "模块二",
+     "size": 18,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "提交自检",
+     "size": 40,
+     "color": "FFFFFF",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "出图前它先自己扫三遍",
+     "size": 20,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 2.72,
+     "width": 5.2,
+     "height": 0.07,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0,
+     "width": 13.333,
+     "height": 0.9,
+     "fill": "161B24",
+     "text": "模块二 · 提交自检",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 7.24,
+     "width": 13.333,
+     "height": 0.26,
+     "fill": "161B24"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 11.55,
+     "top": 1.5,
+     "width": 1.1,
+     "height": 0.66,
+     "fill": "1B2130",
+     "text": "02",
+     "text_color": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 6.28,
+     "fill": "1B2130"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 1.1,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 0.5,
+     "top": 4.62,
+     "width": 2.91,
+     "height": 0.62,
+     "fill": "1B2130",
+     "text": "识图·判据",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 3.56,
+     "top": 4.62,
+     "width": 2.91,
+     "height": 0.62,
+     "fill": "1B2130",
+     "text": "铁律",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 6.62,
+     "top": 4.62,
+     "width": 2.91,
+     "height": 0.62,
+     "fill": "1B2130",
+     "text": "终审清单",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 9.69,
+     "top": 4.62,
+     "width": 2.91,
+     "height": 0.62,
+     "fill": "1B2130",
+     "text": "代码闸门",
+     "text_color": "C6D0DE"
+    }
+   ],
+   "notes": "自检分三层：能不能画（识图 + 判据）、许不许画（铁律 + 合规）、画完扫一遍（终审）。"
+  },
+  {
+   "layout": "blank",
+   "background": "0E1116",
+   "bullets": [
+    {
+     "text": "自检第一层",
+     "size": 14,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "先读懂商品，再谈画法",
+     "size": 30,
+     "color": "FFFFFF",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "",
+     "size": 8,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "识图八字段（每单第一步，缺字段不进下一步）",
+     "size": 17,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "造型轮廓 · 件数与组合 · 材质手感 · 色族 · 包装与印刷 · 可捏部位 · 主题元素 · 是否食品造型",
+     "size": 15,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "判据层六步（每步必须写明由什么推来）",
+     "size": 17,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "主张 → 视觉机制 → 骨架·机位 → 风格基调句 + 色族 → 文字与卖点 → 冲突检查",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "五条硬约束",
+     "size": 17,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "必须有推导 · 禁无理由默认值 · 与最近 6 单至少 2 个轴不同 · 主张不许连撞 · 同一单内统一而骨架各异",
+     "size": 15,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0,
+     "width": 13.333,
+     "height": 0.9,
+     "fill": "161B24",
+     "text": "模块二 · 提交自检",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0.9,
+     "width": 13.333,
+     "height": 0.06,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 7.24,
+     "width": 13.333,
+     "height": 0.26,
+     "fill": "161B24"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 11.55,
+     "top": 1.5,
+     "width": 1.1,
+     "height": 0.66,
+     "fill": "1B2130",
+     "text": "07",
+     "text_color": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 6.28,
+     "fill": "1B2130"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 1.1,
+     "fill": "FE8210"
+    }
+   ],
+   "notes": "这一层是防「每次都给同一套模板」。写不出推导的决策＝无效，要重做。近期记录只用于避让，不是复用源。"
+  },
+  {
+   "layout": "blank",
+   "background": "0E1116",
+   "bullets": [
+    {
+     "text": "自检第二层",
+     "size": 14,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "铁律：冲突时以它为准",
+     "size": 30,
+     "color": "FFFFFF",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "",
+     "size": 8,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "① 参考图即唯一基准 —— 商品造型/颜色/材质/包装一律照参考图，禁参考图外物品入画",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "② 没有参考图就不出图 —— 不许凭文字编商品",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "③ 一件商品一组参考图 —— 禁跨商品混用",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "④ 只有你明确说「换商品」，才允许改商品本体",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "⑤ 图内文字只复刻样式（位置/字号/字体），内容必须新写；禁用词必换合规词",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "⑥ 比例与物理真实 —— 一手只捏一件；捏变形要像玩具，不得出现破损爆裂感",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0,
+     "width": 13.333,
+     "height": 0.9,
+     "fill": "161B24",
+     "text": "模块二 · 提交自检",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0.9,
+     "width": 13.333,
+     "height": 0.06,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 7.24,
+     "width": 13.333,
+     "height": 0.26,
+     "fill": "161B24"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 11.55,
+     "top": 1.5,
+     "width": 1.1,
+     "height": 0.66,
+     "fill": "1B2130",
+     "text": "08",
+     "text_color": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 6.28,
+     "fill": "1B2130"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 1.1,
+     "fill": "FE8210"
+    }
+   ],
+   "notes": "铁律是硬性拦截：空参考图的提案会被代码直接拦下并在对话里提示你「已拦下 N 条」，不是静默失败。"
+  },
+  {
+   "layout": "blank",
+   "background": "0E1116",
+   "bullets": [
+    {
+     "text": "自检第三层",
+     "size": 14,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "终审清单：出图前最后一遍",
+     "size": 30,
+     "color": "FFFFFF",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "",
+     "size": 8,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "禁词逐词扫（命中即换合规词）",
+     "size": 17,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "暴力武器 · 儿童敏感 · 品牌 IP · 医疗功效 · 万圣恐怖分级 · 近似词 · 氛围组合 · 食品造型",
+     "size": 15,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "参考图原文复用扫描 —— 图内每个词必须新写，或取自你给的宣传语",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "同一单内一致性 —— 共用同一条风格基调句；商品视角 / 占比一致",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "另查 —— 全英文、`//` 仅结尾一处、补 no Chinese characters allowed",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "代码闸门 —— 空参考图的提案一律拦下，并明确告诉你原因",
+     "size": 16,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0,
+     "width": 13.333,
+     "height": 0.9,
+     "fill": "161B24",
+     "text": "模块二 · 提交自检",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0.9,
+     "width": 13.333,
+     "height": 0.06,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 7.24,
+     "width": 13.333,
+     "height": 0.26,
+     "fill": "161B24"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 11.55,
+     "top": 1.5,
+     "width": 1.1,
+     "height": 0.66,
+     "fill": "1B2130",
+     "text": "09",
+     "text_color": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 6.28,
+     "fill": "1B2130"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 1.1,
+     "fill": "FE8210"
+    }
+   ],
+   "notes": "禁词表按类目各写一份（美妆的红线与玩具不同），都在各类目的 identity.md 里，你可以直接改。"
+  },
+  {
+   "layout": "blank",
+   "background": "0E1116",
+   "bullets": [
+    {
+     "text": "模块三",
+     "size": 18,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "在线套图",
+     "size": 40,
+     "color": "FFFFFF",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "一张参考图，一组套图",
+     "size": 20,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 2.72,
+     "width": 5.2,
+     "height": 0.07,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0,
+     "width": 13.333,
+     "height": 0.9,
+     "fill": "161B24",
+     "text": "模块三 · 在线套图",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 7.24,
+     "width": 13.333,
+     "height": 0.26,
+     "fill": "161B24"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 11.55,
+     "top": 1.5,
+     "width": 1.1,
+     "height": 0.66,
+     "fill": "1B2130",
+     "text": "03",
+     "text_color": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 6.28,
+     "fill": "1B2130"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 1.1,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 0.5,
+     "top": 4.62,
+     "width": 2.91,
+     "height": 0.62,
+     "fill": "1B2130",
+     "text": "六步流程",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 3.56,
+     "top": 4.62,
+     "width": 2.91,
+     "height": 0.62,
+     "fill": "1B2130",
+     "text": "中文审·英文出",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 6.62,
+     "top": 4.62,
+     "width": 2.91,
+     "height": 0.62,
+     "fill": "1B2130",
+     "text": "图生图",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 9.69,
+     "top": 4.62,
+     "width": 2.91,
+     "height": 0.62,
+     "fill": "1B2130",
+     "text": "张数按需",
+     "text_color": "C6D0DE"
+    }
+   ],
+   "notes": "这一步是你日常打交道最多的：上传商品图 → 拿中文提示词稿 → 生图。"
+  },
+  {
+   "layout": "blank",
+   "background": "0E1116",
+   "bullets": [
+    {
+     "text": "流程",
+     "size": 14,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "六步，不可跳步",
+     "size": 30,
+     "color": "FFFFFF",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "",
+     "size": 8,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "1 读图 —— 按八字段读你的商品图",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "2 读记忆 —— 规则 + 命中的纠错/案例 + 最近 6 单记录（避让，不复用）",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "3 定主张 → 跑判据层六步 + 五条硬约束自检",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "4 出中文稿给你审 —— 你没 OK，不进下一步",
+     "size": 16,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "5 OK 后出英文（与中文逐句对应），再跑一次终审",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "6 逐张生图 —— 重传参考图，不写 @图1",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "",
+     "size": 8,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "张数与图型按你要：不预设固定图型、不写死张数",
+     "size": 15,
+     "color": "C6D0DE",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0,
+     "width": 13.333,
+     "height": 0.9,
+     "fill": "161B24",
+     "text": "模块三 · 在线套图",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0.9,
+     "width": 13.333,
+     "height": 0.06,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 7.24,
+     "width": 13.333,
+     "height": 0.26,
+     "fill": "161B24"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 11.55,
+     "top": 1.5,
+     "width": 1.1,
+     "height": 0.66,
+     "fill": "1B2130",
+     "text": "10",
+     "text_color": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 6.28,
+     "fill": "1B2130"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 1.1,
+     "fill": "FE8210"
+    }
+   ],
+   "notes": "第 4 步是关键卡点：中文稿是给你审的，第 5 步的英文稿才是发给生图模型的。你改了中文稿，就以你改后的为准。"
+  },
+  {
+   "layout": "blank",
+   "background": "0E1116",
+   "bullets": [
+    {
+     "text": "约定与要点",
+     "size": 14,
+     "color": "FE8210",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "三条约定 + 三个不要",
+     "size": 30,
+     "color": "FFFFFF",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "",
+     "size": 8,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "中文稿给你审，英文稿发模型（两份逐句对应，只换语言）",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "全程图生图：有参考图就走图生图接口，不是文生图",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "张数按需 —— 要几张说几张；没说它按商品自己判断",
+     "size": 16,
+     "color": "E6ECF5",
+     "bold": true,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "",
+     "size": 8,
+     "color": "E6ECF5",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "不要　指望对话中途改规则立即生效（下次读点才生效）",
+     "size": 15,
+     "color": "C6D0DE",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "不要　在图里要求参考图之外的东西（铁律会拦）",
+     "size": 15,
+     "color": "C6D0DE",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    },
+    {
+     "text": "不要　换商品了还沿用旧参考图（一件商品一组参考图）",
+     "size": 15,
+     "color": "C6D0DE",
+     "bold": false,
+     "level": 0,
+     "font": "Microsoft YaHei"
+    }
+   ],
+   "shapes": [
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0,
+     "width": 13.333,
+     "height": 0.9,
+     "fill": "161B24",
+     "text": "模块三 · 在线套图",
+     "text_color": "C6D0DE"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 0.9,
+     "width": 13.333,
+     "height": 0.06,
+     "fill": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 0,
+     "top": 7.24,
+     "width": 13.333,
+     "height": 0.26,
+     "fill": "161B24"
+    },
+    {
+     "type": "rounded_rectangle",
+     "left": 11.55,
+     "top": 1.5,
+     "width": 1.1,
+     "height": 0.66,
+     "fill": "1B2130",
+     "text": "11",
+     "text_color": "FE8210"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 6.28,
+     "fill": "1B2130"
+    },
+    {
+     "type": "rectangle",
+     "left": 12.78,
+     "top": 0.96,
+     "width": 0.55,
+     "height": 1.1,
+     "fill": "FE8210"
+    }
+   ],
+   "notes": "收尾：你们只需要把关两处 —— 中文稿、记忆确认。其余的读图、推导、扫词、记账、沉淀都交给它。有拿不准的，先把商品图丢进去让它给方案，再判断。"
+  }
+ ]
+}

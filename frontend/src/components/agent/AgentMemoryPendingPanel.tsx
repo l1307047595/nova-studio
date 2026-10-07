@@ -27,6 +27,7 @@ const KIND_ORDER: Array<MemoryNoteKind | 'session'> = ['feedback', 'library', 'p
  */
 export function AgentMemoryPendingPanel({
   open,
+  inline = false,
   drafts,
   busyId,
   onClose,
@@ -35,6 +36,8 @@ export function AgentMemoryPendingPanel({
   onApproveAll,
 }: {
   open: boolean;
+  /** 内嵌模式：不套遮罩弹窗，直接铺进右侧常驻栏 */
+  inline?: boolean;
   drafts: PendingDraft[];
   busyId: string;
   onClose: () => void;
@@ -45,7 +48,7 @@ export function AgentMemoryPendingPanel({
   const [edited, setEdited] = useState<Record<string, { kind: MemoryNoteKind | 'session'; text: string }>>({});
   const [sessionAuto, setSessionAuto] = useState(false);
 
-  useBodyScrollLock();
+  useBodyScrollLock(open && !inline);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 打开面板时读一次本地开关状态（外部存储）
@@ -65,16 +68,21 @@ export function AgentMemoryPendingPanel({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-card p-5 shadow-lg">
+    <div className={inline ? 'flex h-full min-h-0 flex-col' : 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4'}>
+      <div className={cn(
+        'flex flex-col border-border bg-card',
+        inline
+          ? 'h-full min-h-0 w-full rounded-none border-0 p-3'
+          : 'max-h-[85vh] w-full max-w-2xl rounded-lg border p-5 shadow-lg',
+      )}>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-base font-medium">待确认的记忆（{drafts.length} 条）</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
+            {!inline && <h3 className="text-base font-medium">待确认的记忆（{drafts.length} 条）</h3>}
+            <p className={cn('text-xs text-muted-foreground', !inline && 'mt-1')}>
               这些是 AI 起草的，<span className="text-foreground">你不点「写入」就不会进记忆</span>。可改类型、可改内容；驳回的条目以后不会再提。
             </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose}>关闭</Button>
+          {!inline && <Button variant="ghost" size="sm" onClick={onClose}>关闭</Button>}
         </div>
 
         <div className="mt-3 flex items-center justify-between gap-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2">

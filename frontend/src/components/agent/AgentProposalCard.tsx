@@ -74,6 +74,10 @@ interface AgentProposalCardProps {
    * 返回的 ID 会被自动勾选，省掉「先回对话里传图、再回来重新确认」这一趟。
    */
   onUploadReferences?: (files: File[]) => Promise<string[] | void>;
+  /** 队列里还有多少条待确认的提案（>0 时显示「全部确认」） */
+  queuedCount?: number;
+  /** 一次确认「当前 + 队列里全部」提案（沿用当前卡片选的模型/参数） */
+  onApproveAll?: (prompt: string, selectedImageIds: string[], model: ModelId, params: AgentApproveParams, promptEn?: string) => void;
 }
 
 const PARALLEL_OPTIONS: ParallelCount[] = PARALLEL_COUNT_VALUES;
@@ -118,6 +122,8 @@ export function AgentProposalCard({
   onApprove,
   onCancel,
   onUploadReferences,
+  queuedCount = 0,
+  onApproveAll,
 }: AgentProposalCardProps) {
   const scopedProposal = useMemo(() => scopeAgentProposal(proposal, images), [proposal, images]);
   const scopedImages = useMemo(() => {
@@ -381,6 +387,14 @@ export function AgentProposalCard({
     // 免得出现"你看到的是 A、实际发出的是 B"。
     const promptEn = edited ? undefined : scopedProposal.promptEn;
     onApprove(prompt, selectedIds.slice(0, Math.max(0, maxRefs)), imageModel, layout, promptEn);
+  };
+
+  /** 全部确认：当前这条 + 队列里剩余的，一次提交（沿用当前卡片选的模型/参数） */
+  const handleApproveAll = () => {
+    if (busy || overLimit || !onApproveAll) return;
+    if (maxRefs <= 0 && selectedIds.length > 0) return;
+    const promptEn = edited ? undefined : scopedProposal.promptEn;
+    onApproveAll(prompt, selectedIds.slice(0, Math.max(0, maxRefs)), imageModel, layout, promptEn);
   };
 
   return (
@@ -729,6 +743,19 @@ export function AgentProposalCard({
             <X className="h-3.5 w-3.5" />
             取消
           </Button>
+          {onApproveAll && queuedCount > 0 && !failed && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleApproveAll}
+              disabled={busy || overLimit || prompt.trim().length === 0}
+              className="gap-1"
+              title={`一键确认当前这条 + 队列里剩余的 ${queuedCount} 条（沿用当前模型与参数）`}
+            >
+              <Check className="h-3.5 w-3.5" />
+              全部确认 ({queuedCount + 1})
+            </Button>
+          )}
           <Button
             size="sm"
             data-agent-approve=""

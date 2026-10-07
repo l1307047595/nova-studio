@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Nova Studio · Agent 对话页 · v2</title>
+<style>
+  /* ═══════════════════════════════════════════════════════════════
+     表面判定：Operate（对"待确认条目"采取动作）+ 次要 Command/Inspect
+     ——不是 Decide/Learn，所以不出现 hero、不做等权卡片网格。
+     视觉词库：Linear（暗色原生 / 明度分层 / 半透明描边 / 单一强调色）
+     交互范式：Claude Artifacts（分栏 + 线程内卡片 + 预览/代码双页签）
+               Cursor（批量审阅）/ GitHub review（批量提交条）
+               审批队列（驳回必须写理由，理由回流给 AI）
+     排版：中文界面用系统汉字字体是对的；但排版系统必须明确——
+           字号 11/12/13/15/17/22，字重 400/500/600，≥20px 收紧字距，
+           证据类内容（英文稿、文件路径、键位）一律等宽。
+     ═══════════════════════════════════════════════════════════════ */
+  :root {
+    /* 画布与分层：靠明度而不是阴影 */
+    --canvas: #08090a;
+    --panel:  #0f1011;
+    --raise:  #191a1b;
+    --hover:  rgba(255,255,255,.04);
+    --line:   rgba(255,255,255,.06);
+    --line-2: rgba(255,255,255,.10);
+
+    --ink:    #f7f8f8;
+    --ink-2:  #c9cfd8;
+    --ink-3:  #8a8f98;
+    --ink-4:  #62666d;
+
+    --acc:    #fe8210;         /* 品牌橙：只用于"要你决策"与主 CTA */
+    --acc-dim: rgba(254,130,16,.14);
+    --ok:     #27a644;
+
+    --sans: system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    --mono: ui-monospace, "Cascadia Mono", Consolas, "SF Mono", Menlo, monospace;
+    --r: 8px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--canvas); color: var(--ink);
+    font: 13.5px/1.6 var(--sans);
+    -webkit-font-smoothing: antialiased;
+    font-feature-settings: "tnum" 1;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+  .mono { font-family: var(--mono); font-size: 11px; letter-spacing: .02em; }
+  .lbl  { font-family: var(--mono); font-size: 10px; letter-spacing: .09em;
+          text-transform: uppercase; color: var(--ink-4); }
+
+  .app { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
+
+  /* ── 图标栏：无文字标签，去掉一切装饰性竖条 ── */
+  .rail {
+    width: 56px; flex: 0 0 56px; background: var(--panel);
+    border-right: 1px solid var(--line);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 12px 0; gap: 2px;
+  }
+  .mark {
+    width: 28px; height: 28px; border-radius: 7px; margin-bottom: 12px;
+    background: var(--acc); color: #14060a;
+    display: grid; place-items: center; font-weight: 700; font-size: 13px;
+  }
+  .ico {
+    width: 36px; height: 36px; border-radius: var(--r);
+    display: grid; place-items: center; color: var(--ink-4); position: relative;
+  }
+  .ico:hover { background: var(--hover); color: var(--ink-2); }
+  .ico.on { color: var(--ink); background: var(--hover); }
+  .ico.on::after {
+    content: ""; position: absolute; right: -12px; top: 15px;
+    width: 4px; height: 4px; border-radius: 50%; background: var(--acc);
+  }
+  .ico[data-tip]:hover::before {
+    content: attr(data-tip); position: absolute; left: 44px; top: 9px; z-index: 9;
+    background: var(--raise); border: 1px solid var(--line-2); border-radius: 6px;
+    padding: 4px 8px; font-size: 11px; color: var(--ink-2); white-space: nowrap;
+  }
+
+  /* ── 中：线程 ── */
+  .thread { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+
+  .bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 16px; border-bottom: 1px solid var(--line);
+    background: var(--panel); min-height: 52px;
+  }
+  .seg { display: flex; background: var(--canvas); border: 1px solid var(--line);
+         border-radius: 7px; padding: 2px; }
+  .seg button { padding: 5px 11px; border-radius: 5px; font-size: 12px; color: var(--ink-3); }
+  .seg button:hover { color: var(--ink-2); }
+  .seg button.on { background: var(--raise); color: var(--ink); }
+  .seg button.on::after { content: ""; }
+
+  .who {
+    display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink-3);
+    padding-left: 2px;
+  }
+  .who i { width: 5px; height: 5px; border-radius: 50%; background: var(--ok); }
+  .right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+  .ghost {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 6px 10px; border-radius: 7px; font-size: 12px; color: var(--ink-2);
+    border: 1px solid var(--line); background: rgba(255,255,255,.02);
+  }
+  .ghost:hover { background: var(--hover); color: var(--ink); border-color: var(--line-2); }
+  .count {
+    font-family: var(--mono); font-size: 10px; padding: 1px 5px; border-radius: 4px;
+    background: var(--acc); color: #14060a; font-weight: 600;
+  }
+  .count.dim { background: rgba(255,255,255,.08); color: var(--ink-3); }
+
+  .scroll { flex: 1 1 auto; overflow: auto; scrollbar-width: thin; }
+  .feed { padding: 22px 26px 8px; max-width: 860px; }
+
+  .role {
+    display: flex; align-items: baseline; gap: 10px; margin: 0 0 7px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--ink-4);
+  }
+  .turn { margin-bottom: 30px; }
+  .turn.me { border-left: 1px solid var(--line); padding-left: 14px; margin-left: 8px; }
+  .turn.me .role span:first-child { color: var(--ink-3); }
+  .say { color: #d6dbe3; max-width: 64ch; }
+  .say b { color: var(--ink); font-weight: 600; }
+
+  /* 图片：干净的占位块，不画假商品 */
+  .strip { display: flex; gap: 8px; margin-top: 11px; }
+  .shot {
+    position: relative; width: 88px; height: 88px; border-radius: var(--r);
+    background:
+      repeating-linear-gradient(135deg, rgba(255,255,255,.026) 0 1px, transparent 1px 9px),
+      linear-gradient(150deg, #16181b 0%, #0f1113 60%, #141719 100%);
+    border: 1px solid var(--line); display: grid; place-items: center; overflow: hidden;
+  }
+  .shot::before {
+    content: ""; position: absolute; inset: 6px; border-radius: 5px;
+    border: 1px dashed rgba(255,255,255,.055);
+  }
+  .shot.run::before { border-color: rgba(254,130,16,.28); }
+  .shot span { font-family: var(--mono); font-size: 10px; color: var(--ink-4); }
+  .shot.out { width: auto; flex: 1 1 0; aspect-ratio: 1/1; height: auto; }
+  .shot .dot {
+    position: absolute; top: 7px; left: 7px; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--ink-4);
+  }
+  .shot .dot.ok { background: rgba(255,255,255,.38); }
+  .shot .dot.run { background: var(--acc); box-shadow: 0 0 0 3px var(--acc-dim); }
+  .shot .cap {
+    position: absolute; bottom: 6px; left: 7px; right: 7px;
+    font-family: var(--mono); font-size: 10px; color: var(--ink-3);
+    display: flex; justify-content: space-between; gap: 6px;
+  }
+  /* 资产卡：把"图"换成"关于这张图的规格"——不做假商品插画 */
+  .shot.asset {
+    width: auto; flex: 1 1 0; aspect-ratio: 1/1; height: auto;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 5px; background: rgba(255,255,255,.025); border-color: var(--line-2);
+  }
+  .shot.asset::before { inset: 5px; border-style: solid; border-color: rgba(255,255,255,.05); }
+  .shot.asset .t { font-size: 12px; color: var(--ink-2); }
+  .shot.asset .s { font-family: var(--mono); font-size: 10px; color: var(--ink-4); }
+  .shot.asset:hover { background: var(--hover); }
+  .shot.asset .see {
+    font-family: var(--mono); font-size: 10px; color: var(--ink-4);
+    opacity: 0; transition: opacity .15s;
+  }
+  .shot.asset:hover .see { opacity: 1; color: #ffd9ae; }
+
+  /* 小节标：把"提案确认区"和"生成结果区"用留白 + 标头分开 */
+  .sect { display: flex; align-items: center; gap: 9px; margin: 22px 0 9px; }
+  .sect::after { content: ""; flex: 1 1 auto; height: 1px; background: var(--line); }
+  .shot.run::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--acc), transparent);
+    animation: slide 1.4s linear infinite;
+  }
+  @keyframes slide { from { transform: translateX(-60%); } to { transform: translateX(60%); } }
+
+  /* 提案卡：线程内的"交付物"，不是装饰卡 */
+  .artifact {
+    margin-top: 14px; border: 1px solid var(--line-2); border-radius: 10px;
+    background: rgba(255,255,255,.02); overflow: hidden;
+  }
+  .artifact > .head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,.015);
+  }
+  .artifact > .head .name { font-size: 12px; color: var(--ink-2); font-weight: 600; }
+  .artifact > .head .path { font-family: var(--mono); font-size: 10px; color: var(--ink-4); }
+  .tabs { margin-left: auto; display: flex; gap: 2px; background: var(--canvas);
+          border: 1px solid var(--line); border-radius: 6px; padding: 2px; }
+  .tabs button {
+    padding: 3px 9px; border-radius: 4px; font-family: var(--mono); font-size: 10px;
+    letter-spacing: .06em; color: var(--ink-4);
+  }
+  .tabs button.on { background: var(--raise); color: var(--ink); }
+  .pane { padding: 12px; display: none; }
+  .pane.on { display: block; }
+  .draftbox {
+    border: 1px solid var(--line); border-radius: 7px; padding: 10px 11px;
+    background: var(--canvas); color: var(--ink-2); outline: none; font-size: 13px;
+    line-height: 1.65;
+  }
+  .draftbox:focus { border-color: rgba(254,130,16,.5); }
+  .en {
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.75; color: var(--ink-3);
+    white-space: pre-wrap; border: 1px solid var(--line); border-radius: 7px;
+    padding: 10px 11px; background: var(--canvas);
+  }
+  .en em { color: var(--ink-4); font-style: normal; }
+  .meta {
+    display: flex; gap: 14px; padding: 9px 12px; border-top: 1px solid var(--line);
+    font-family: var(--mono); font-size: 10px; color: var(--ink-4);
+  }
+  .meta b { color: var(--ink-3); font-weight: 400; }
+  /* 批量动作条（Cursor / GitHub review 的做法） */
+  .batch {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-top: 1px solid var(--line-2);
+    background: rgba(255,255,255,.03);
+  }
+  .cta {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 7px 13px; border-radius: 7px; font-size: 12.5px; font-weight: 600;
+    background: var(--acc); color: #14060a;
+  }
+  .cta:hover { filter: brightness(1.08); }
+  .kbd {
+    font-family: var(--mono); font-size: 10px; padding: 1px 5px; border-radius: 4px;
+    background: rgba(0,0,0,.28); color: #2b1300;
+  }
+  .link { font-size: 12px; color: var(--ink-3); }
+  .link:hover { color: var(--ink); }
+  .batch .note { margin-left: auto; font-size: 11px; color: var(--ink-4); }
+
+  /* ── 底部输入 ── */
+  .composer { padding: 10px 26px 16px; max-width: 860px; }
+  .inject {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 7px 10px; border-radius: 7px; border: 1px solid var(--line);
+    background: rgba(255,255,255,.015); transition: border-color .18s, background .18s;
+  }
+  .inject.live { border-color: rgba(254,130,16,.45); background: var(--acc-dim); }
+  .tag {
+    font-family: var(--mono); font-size: 10px; padding: 2px 6px; border-radius: 4px;
+    border: 1px solid var(--line-2); color: var(--ink-3);
+  }
+  .tag.hit { border-color: rgba(254,130,16,.4); color: #ffd9ae; background: rgba(254,130,16,.08); }
+  .inject .tail { margin-left: auto; font-size: 11px; color: var(--ink-4); }
+  .inject.live .tail { color: #ffd9ae; }
+
+  .input {
+    margin-top: 8px; display: flex; align-items: flex-end; gap: 8px;
+    border: 1px solid var(--line-2); border-radius: 9px; background: var(--panel);
+    padding: 9px 10px;
+  }
+  .input:focus-within { border-color: rgba(254,130,16,.5); }
+  .input .box { flex: 1 1 auto; outline: none; min-height: 20px; font-size: 13.5px; }
+  .input .box:empty::before { content: attr(data-ph); color: var(--ink-4); }
+  .sq {
+    width: 30px; height: 30px; border-radius: 7px; display: grid; place-items: center;
+    color: var(--ink-4);
+  }
+  .sq:hover { background: var(--hover); color: var(--ink-2); }
+  .sq.go { background: var(--acc); color: #14060a; }
+  .sq.go:hover { filter: brightness(1.08); background: var(--acc); }
+
+  /* ── 右：待确认队列（Linear inbox 式的密排） ── */
+  .queue { width: 340px; flex: 0 0 340px; background: var(--panel);
+           border-left: 1px solid var(--line); display: flex; flex-direction: column; }
+  .queue > header { padding: 13px 14px 10px; border-bottom: 1px solid var(--line); }
+  .h1 { display: flex; align-items: baseline; gap: 8px; }
+  .h1 h2 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: -.01em; }
+  .h1 .sub { font-size: 11px; color: var(--ink-4); }
+  .filters { display: flex; gap: 13px; margin-top: 10px; }
+  .filters button { font-size: 11.5px; color: var(--ink-4); padding: 0 0 6px; }
+  .filters button:hover { color: var(--ink-2); }
+  .filters button.on { color: var(--ink); box-shadow: inset 0 -1px 0 0 var(--acc); }
+
+  .rows { flex: 1 1 auto; overflow: auto; padding: 6px 0; }
+  .row {
+    display: flex; gap: 10px; padding: 11px 14px 12px; cursor: default; position: relative;
+  }
+  .row + .row { border-top: 1px solid rgba(255,255,255,.04); }
+  .row:hover { background: var(--hover); }
+  .row.open { background: rgba(255,255,255,.05); }
+  .row .kdot { width: 6px; height: 6px; border-radius: 50%; margin-top: 6px; flex: 0 0 6px;
+               background: var(--ink-4); }
+  /* 只有"待你决策"的那条用强调色；类型靠文字区分，不靠彩虹 */
+  .row[data-k="rule"] .kdot { background: var(--acc); }
+  .row .body { min-width: 0; flex: 1 1 auto; }
+  .row .line { font-size: 12.5px; color: var(--ink-2); }
+  .row.open .line { color: var(--ink); }
+  .row .sub {
+    margin-top: 4px; font-family: var(--mono); font-size: 10px; color: var(--ink-4);
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .row .acts { display: flex; gap: 4px; opacity: 0; transition: opacity .14s; margin-top: 2px; }
+  .row:hover .acts, .row.open .acts { opacity: 1; }
+  .mini {
+    width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center;
+    border: 1px solid var(--line); color: var(--ink-3); font-size: 12px;
+  }
+  .mini.yes:hover { border-color: rgba(39,166,68,.55); color: #7ee39a; background: rgba(39,166,68,.1); }
+  .mini.no:hover  { border-color: rgba(242,84,60,.5);  color: #ff9f97; background: rgba(242,84,60,.1); }
+  /* 展开态：显示判据与"驳回理由"输入（驳回必须写理由） */
+  .detail { display: none; margin-top: 10px; }
+  .row.open .detail { display: block; }
+  .kv { display: grid; grid-template-columns: 52px 1fr; gap: 3px 8px;
+        font-size: 11.5px; color: var(--ink-3); }
+  .kv .k { font-family: var(--mono); font-size: 10px; color: var(--ink-4); padding-top: 2px; }
+  .why { margin-top: 9px; display: flex; gap: 6px; }
+  .why input {
+    flex: 1 1 auto; background: var(--canvas); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 8px; font: 12px var(--sans); color: var(--ink-2);
+    outline: none;
+  }
+  .why input:focus { border-color: rgba(242,84,60,.5); }
+  .why input::placeholder { color: var(--ink-4); }
+  .why button {
+    font-size: 11px; padding: 6px 9px; border-radius: 6px;
+    border: 1px solid rgba(242,84,60,.45); color: #ff9f97;
+  }
+  .why button:hover { background: rgba(242,84,60,.12); }
+
+  .qfoot { border-top: 1px solid var(--line); padding: 10px 14px 12px; }
+  .submit {
+    width: 100%; display: flex; align-items: center; gap: 8px;
+    padding: 8px 11px; border-radius: 7px; font-size: 12.5px; font-weight: 600;
+    background: var(--raise); border: 1px solid var(--line-2); color: var(--ink);
+  }
+  .submit:hover { background: rgba(255,255,255,.06); }
+  .submit .kbd { margin-left: auto; background: rgba(0,0,0,.3); color: var(--ink-3); }
+  .sw { display: flex; align-items: center; gap: 8px; margin-top: 9px;
+        font-size: 11px; color: var(--ink-4); }
+  .sw .track { margin-left: auto; width: 30px; height: 17px; border-radius: 999px;
+               background: rgba(255,255,255,.1); position: relative; transition: background .18s; }
+  .sw .track::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px;
+                      border-radius: 50%; background: #7b828d; transition: transform .18s, background .18s; }
+  .sw.on .track { background: rgba(254,130,16,.45); }
+  .sw.on .track::after { transform: translateX(13px); background: var(--acc); }
+
+  .flash {
+    position: fixed; left: 50%; bottom: 22px; transform: translate(-50%, 10px);
+    background: var(--raise); border: 1px solid var(--line-2); border-radius: 8px;
+    padding: 8px 13px; font-size: 12.5px; color: var(--ink-2);
+    box-shadow: 0 6px 20px rgba(0,0,0,.5); opacity: 0; pointer-events: none;
+    transition: opacity .18s, transform .18s;
+  }
+  .flash.on { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .shot.run::after { animation: none; }
+    * { transition: none !important; }
+  }
+  @media (max-width: 1080px) {
+    .app { flex-wrap: wrap; height: auto; }
+    .queue { width: 100%; flex: 1 1 100%; border-left: 0; border-top: 1px solid var(--line); }
+    .thread { height: 70vh; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- 图标栏 -->
+  <nav class="rail">
+    <div class="mark">N</div>
+    <button class="ico on" data-tip="Agent 对话" aria-label="Agent 对话">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5.5h16v10.5H9l-5 4z"/></svg>
+    </button>
+    <button class="ico" data-tip="生图工作台" aria-label="生图工作台">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M4 15.5l4.5-4 3.5 2.5 3-2.5 5 5"/></svg>
+    </button>
+    <button class="ico" data-tip="我的素材" aria-label="我的素材">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="4.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="4.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="14.5" width="7" height="5" rx="1.5"/><rect x="13.5" y="14.5" width="7" height="5" rx="1.5"/></svg>
+    </button>
+    <button class="ico" data-tip="提示词广场" aria-label="提示词广场">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 4l2.2 4.8L19 9.4l-3.7 3.4L16.2 18 12 15.4 7.8 18l.9-5.2L5 9.4l4.8-.6z"/></svg>
+    </button>
+    <button class="ico" data-tip="设置" aria-label="设置" style="margin-top:auto">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.2M12 18.3v2.2M4.8 12H7M17 12h2.2M6.9 6.9l1.6 1.6M15.5 15.5l1.6 1.6M17.1 6.9l-1.6 1.6M8.5 15.5l-1.6 1.6"/></svg>
+    </button>
+  </nav>
+
+  <!-- 线程 -->
+  <main class="thread">
+    <header class="bar">
+      <div class="seg" role="tablist" aria-label="工作类目">
+        <button class="on" data-cat="捏捏乐">捏捏乐</button>
+        <button data-cat="美妆">美妆</button>
+        <button data-cat="通用">通用</button>
+      </div>
+      <button class="ghost">＋ 新建类目</button>
+      <div class="right">
+        <div class="who"><i></i> 榴莲套装 · 12:31</div>
+        <button class="ghost" id="openQueue">记忆 <span class="count" id="badge">3</span></button>
+      </div>
+    </header>
+
+    <div class="scroll">
+      <div class="feed">
+
+        <div class="turn">
+          <div class="role"><span>session</span><span>记忆已在会话开始注入 · 规则 identity 8.4k + 命中 2 条</span></div>
+        </div>
+
+        <div class="turn me">
+          <div class="role"><span>你 · 12:31</span></div>
+          <div class="say">照着这张图出一组套图，主图强调三件套。</div>
+          <div class="strip">
+            <div class="shot"><span>img_1</span><i class="dot"></i>
+              <div class="cap"><span>1080²</span><span>参考图</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="turn">
+          <div class="role"><span>agent · 12:31</span><span>读图 8 字段</span></div>
+          <div class="say">
+            三件套（榴莲造型 + 橙黄杯 + 斑点圆球），哑光软胶，参考图无印刷文字，食品造型。<br>
+            本单主张 <b>「三件成套，一手都捏得住」</b> —— 视觉机制用对称陈列 + 三件同框，依据：件数与组合。
+          </div>
+
+          <div style="height:4px"></div>
+          <!-- 线程内的交付物卡片（Claude Artifacts 的位置感，不做装饰卡） -->
+          <section class="artifact">
+            <div class="head">
+              <span class="name">提案 1 / 4 · 主图</span>
+              <span class="path">1:1 · 参考图 img_1 · 中英两份逐句对应</span>
+              <div class="tabs">
+                <button class="on" data-pane="zh">中文稿</button>
+                <button data-pane="en">EN 生图版</button>
+              </div>
+            </div>
+            <div class="pane on" id="pane-zh">
+              <div class="draftbox" contenteditable="true" spellcheck="false">三件套居中对称陈列于暖光木桌，三件各占画面三分之一、间隔均匀；哑光软胶质感靠侧逆柔光打出边缘高光；背景只留一道浅色墙面与少量木纹，不做铺陈。</div>
+            </div>
+            <div class="pane" id="pane-en">
+              <div class="en">Three-piece squeeze toy set arranged symmetrically on a warm wooden table, each item occupying one third of the frame with even spacing, matte soft-rubber texture with side-back soft light for rim highlights, plain light wall with subtle wood grain, square 1:1, ultra-detailed e-commerce quality.  <em>//　这一份才是发给生图模型的正文</em></div>
+            </div>
+            <div class="meta" style="padding:11px 13px">
+              <span>模型 <b>gpt-image-2</b></span>
+              <span>尺寸 <b>1024×1024</b></span>
+              <span>参考图 <b>1 张</b></span>
+              <span>改动中文稿则以你的版本为准</span>
+            </div>
+            <div class="batch" style="padding:11px 13px">
+              <button class="cta" id="gen">确认并生图 <span class="kbd">⌘↵</span></button>
+              <button class="link">调整提案</button>
+              <button class="link">取消</button>
+              <span class="note">未确认不会发出生图请求</span>
+            </div>
+          </section>
+
+          <div class="sect"><span class="lbl">本轮出图</span></div>
+          <div class="strip">
+            <div class="shot asset"><i class="dot ok"></i><span class="t">主图</span><span class="s">1024² · 1:1</span><span class="see">查看</span></div>
+            <div class="shot asset"><i class="dot ok"></i><span class="t">宣传图</span><span class="s">1024² · 1:1</span><span class="see">查看</span></div>
+            <div class="shot asset"><i class="dot ok"></i><span class="t">使用图</span><span class="s">1024² · 4:5</span><span class="see">查看</span></div>
+            <div class="shot asset run"><span class="t">细节图</span><span class="s">排队 4/4 · 42s</span><span class="see">取消</span></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- 输入区 -->
+      <div class="composer">
+        <div class="inject" id="inject">
+          <span class="lbl">本轮记忆</span>
+          <span class="tag">identity 8.4k</span>
+          <span class="tag hit">命中 · 价格贴压住商品名</span>
+          <span class="tag hit">命中 · 套装居中对称陈列</span>
+          <span class="tail">对话中途不读不写 · 空闲 3 分钟才起草</span>
+        </div>
+        <div class="input">
+          <button class="sq" title="上传图片" aria-label="上传图片">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 16V5"/><path d="M8 9l4-4 4 4"/><path d="M4 16.5v1.5A2 2 0 0 0 6 20h12a2 2 0 0 0 2-2v-1.5"/></svg>
+          </button>
+          <div class="box" id="box" contenteditable="true" data-ph="说要什么图型、几张、什么风格（有新图上传时会重新读一次记忆）"></div>
+          <button class="sq go" id="send" aria-label="发送">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V6"/><path d="M6 11l6-6 6 6"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- 待确认队列 -->
+  <aside class="queue" id="queue">
+    <header>
+      <div class="h1">
+        <h2>记忆</h2>
+        <span class="sub"><span id="qcat">捏捏乐</span> · 本类目独立，不与其它类目互通</span>
+      </div>
+      <div class="filters">
+        <button class="on">待确认 <span id="qnum">3</span></button>
+        <button>规则</button>
+        <button>纠错</button>
+        <button>案例</button>
+      </div>
+    </header>
+
+    <div class="rows" id="rows">
+      <div class="row" data-k="fix">
+        <span class="kdot"></span>
+        <div class="body">
+          <div class="line">价格贴不得压住商品名</div>
+          <div class="sub"><span>#主图</span><span>空闲心跳 18:32</span></div>
+          <div class="acts">
+            <button class="mini yes" data-act="yes" aria-label="写入">✓</button>
+            <button class="mini no" data-act="no" aria-label="驳回">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row" data-k="lib">
+        <span class="kdot"></span>
+        <div class="body">
+          <div class="line">套装图用居中对称陈列</div>
+          <div class="sub"><span>#套装</span><span>空闲心跳 18:32</span></div>
+          <div class="acts">
+            <button class="mini yes" data-act="yes" aria-label="写入">✓</button>
+            <button class="mini no" data-act="no" aria-label="驳回">✕</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row open" data-k="rule">
+        <span class="kdot"></span>
+        <div class="body">
+          <div class="line">主图底部保留 ≥8% 纯空白</div>
+          <div class="sub"><span>#主图</span><span>#安全区</span><span>待采纳 → 规则区</span></div>
+          <div class="detail">
+            <div class="kv">
+              <span class="k">判据</span><span>商品占幅 &gt; 85%，或运营要贴价格贴</span>
+              <span class="k">规则</span><span>主图底部保留 ≥8% 纯空白，文字与贴纸不得压住商品名</span>
+              <span class="k">来源</span><span>复盘 09-23 · 同类坑复发 3 次</span>
+            </div>
+            <div class="why">
+              <input placeholder="驳回需写理由，理由会回流给 AI" id="whyInput">
+              <button data-act="no">驳回</button>
+            </div>
+          </div>
+          <div class="acts">
+            <button class="mini yes" data-act="yes" aria-label="写入">✓</button>
+            <button class="mini no" data-act="no" aria-label="驳回">✕</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="qfoot">
+      <button class="submit" id="submitAll">写入全部 3 条 <span class="kbd">⌘⏎</span></button>
+      <div class="sw" id="sw">
+        <span>会话状态自动写入 · 默认关</span>
+        <span class="track"></span>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="flash" id="flash"></div>
+
+<script>
+  const $ = s => document.querySelector(s);
+  let t;
+  function flash(msg) {
+    const el = $('#flash'); el.textContent = msg; el.classList.add('on');
+    clearTimeout(t); t = setTimeout(() => el.classList.remove('on'), 1900);
+  }
+
+  // 类目切换
+  document.querySelectorAll('.seg button').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.seg button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    $('#qcat').textContent = b.dataset.cat;
+    flash('已切到 ' + b.dataset.cat + ' · 记忆与对话整套切换');
+  }));
+
+  // 交付物卡片：中文 / EN 双页签（预览·源码的相邻页签范式）
+  document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => {
+    document.querySelectorAll('.tabs button').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    $('#pane-zh').classList.toggle('on', b.dataset.pane === 'zh');
+    $('#pane-en').classList.toggle('on', b.dataset.pane === 'en');
+  }));
+
+  // 队列：行内 ✓ / ✕；行可展开看判据；驳回必须写理由
+  const rows = $('#rows');
+  function refresh() {
+    const n = rows.querySelectorAll('.row:not(.done)').length;
+    $('#badge').textContent = n;
+    $('#badge').classList.toggle('dim', n === 0);
+    $('#qnum').textContent = n;
+    $('#submitAll').innerHTML = n ? '写入全部 ' + n + ' 条 <span class="kbd">⌘⏎</span>'
+                                  : '暂无待确认 <span class="kbd">⌘⏎</span>';
+  }
+  function settle(row, msg) {
+    row.classList.add('done');
+    row.style.transition = 'opacity .18s, height .22s';
+    row.style.opacity = '0';
+    setTimeout(() => { row.style.display = 'none'; refresh(); }, 200);
+    flash(msg);
+  }
+  rows.addEventListener('click', e => {
+    const btn = e.target.closest('.mini, .why button');
+    if (btn) {
+      const row = btn.closest('.row');
+      if (btn.dataset.act === 'yes') {
+        const k = row.dataset.k;
+        settle(row, k === 'rule' ? '已采纳进规则区（identity.md）' : '已写入 ' + (k === 'fix' ? 'feedback.md' : 'library.md'));
+      } else {
+        const input = row.querySelector('.why input');
+        if (row.classList.contains('open') && input && !input.value.trim()) {
+          input.focus();
+          flash('驳回要写一句理由，会回流给 AI');
+          return;
+        }
+        settle(row, '已驳回 · 理由已记，之后不再重复提');
+      }
+      return;
+    }
+    // 点行空白处 = 展开/收起详情
+    const row = e.target.closest('.row');
+    if (row) rows.querySelectorAll('.row').forEach(r => { if (r !== row) r.classList.remove('open'); });
+    if (row) row.classList.toggle('open');
+  });
+
+  $('#submitAll').addEventListener('click', () => {
+    const list = [...rows.querySelectorAll('.row:not(.done)')];
+    if (!list.length) return flash('没有待确认的条目');
+    list.forEach((r, i) => setTimeout(() => settle(r, '已写入 1 条'), i * 160));
+  });
+
+  // 输入聚焦 → 本轮记忆点亮（把看不见的注入变可见）
+  $('#box').addEventListener('focus', () => $('#inject').classList.add('live'));
+  $('#box').addEventListener('blur', () => $('#inject').classList.remove('live'));
+
+  $('#sw').addEventListener('click', function () {
+    this.classList.toggle('on');
+    flash(this.classList.contains('on') ? '会话状态改为自动写入' : '会话状态仍需你确认');
+  });
+  $('#gen').addEventListener('click', () => flash('已提交生成 · 队列 4 张，逐张出图'));
+  $('#send').addEventListener('click', () => flash('样品演示：不发真实请求'));
+  $('#openQueue').addEventListener('click', () => $('#queue').scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+
+  // ⌘/Ctrl+Enter 提交全部；⌘/Ctrl+Enter 在输入框里也提交
+  addEventListener('keydown', e => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      if (document.activeElement === $('#box')) flash('样品演示：不发真实请求');
+      else $('#submitAll').click();
+    }
+  });
+  refresh();
+</script>
+</body>
+</html>

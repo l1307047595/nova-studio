@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Nova Studio · 浅色界面原型（5 个界面）</title>
+<style>
+  /* ══════════════════════════════════════════════════════════════════
+     方向：浅色（商品图是主角）
+     参考：[3] 即梦 聊天式 → Agent 页 ｜ [4] Weavy 左参数右结果 → 生图页
+           [5] 星流 侧栏+网格 → 素材页 ｜ [1] Comfy 节点 → 画布页
+           设置页不抄任何产品，干净键值/表格就够
+     强调色降级：主色近黑；橙只留给「待你决策」与角标
+     ══════════════════════════════════════════════════════════════════ */
+  :root{
+    --canvas:#f6f7f9; --surface:#fff; --sunken:#eff1f4; --hover:#f2f4f7;
+    --line:rgba(16,24,40,.08); --line-2:rgba(16,24,40,.14);
+    --ink:#14161a; --ink-2:#3f4652; --ink-3:#5b6470; --ink-4:#8b93a0;
+    --primary:#16181d; --acc:#fe8210; --acc-soft:rgba(254,130,16,.12); --ok:#12915b;
+    --shadow:0 1px 2px rgba(16,24,40,.05),0 6px 18px rgba(16,24,40,.06);
+    --shadow-sm:0 1px 2px rgba(16,24,40,.06);
+    --r:12px;
+    --sans:system-ui,-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+    --mono:ui-monospace,"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--canvas);color:var(--ink);font:13.5px/1.6 var(--sans);
+       -webkit-font-smoothing:antialiased;overflow:hidden}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+  img{display:block}
+  .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-4)}
+  .mono{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+
+  .app{display:flex;height:100dvh}
+  .rail{width:56px;flex:0 0 56px;background:var(--surface);border-right:1px solid var(--line);
+        display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:2px}
+  .mark{width:28px;height:28px;border-radius:8px;margin-bottom:12px;background:var(--acc);color:#fff;
+        display:grid;place-items:center;font-weight:700;font-size:13px}
+  .ico{width:36px;height:36px;border-radius:9px;display:grid;place-items:center;color:var(--ink-4)}
+  .ico:hover{background:var(--hover);color:var(--ink-2)}
+  .ico.on{background:var(--sunken);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+
+  .stage{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+  .screen{display:none;flex:1 1 auto;min-height:0;flex-direction:column}
+  .screen.on{display:flex}
+
+  .bar{display:flex;align-items:center;gap:12px;padding:12px 20px;background:var(--surface);
+       border-bottom:1px solid var(--line);min-height:56px}
+  .bar .title{font-size:15px;font-weight:600}
+  .bar .sub{font-size:12.5px;color:var(--ink-4)}
+  .right{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .seg{display:flex;gap:2px;background:var(--sunken);border-radius:10px;padding:3px}
+  .seg button{padding:6px 13px;border-radius:8px;font-size:12.5px;color:var(--ink-3)}
+  .seg button.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:var(--shadow-sm)}
+  .gbtn{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:9px;font-size:12.5px;
+        color:var(--ink-2);border:1px solid var(--line-2);background:var(--surface)}
+  .gbtn:hover{background:var(--hover)}
+  .pribtn{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border-radius:10px;font-size:13px;
+          font-weight:600;background:var(--primary);color:#fff}
+  .pribtn:hover{background:#000}
+  .kbd{font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:4px;background:rgba(0,0,0,.10);color:#3f4652}
+  .pribtn .kbd{background:rgba(255,255,255,.18);color:#fff}
+  .badge{font-family:var(--mono);font-size:10px;padding:2px 6px;border-radius:5px;background:var(--acc);color:#fff;font-weight:700}
+  .chip{font-size:11.5px;padding:4px 10px;border-radius:999px;background:var(--sunken);color:var(--ink-3);border:1px solid transparent}
+  .chip:hover{color:var(--ink-2)}
+  .chip.on{background:var(--surface);color:var(--ink);border-color:var(--line-2);box-shadow:var(--shadow-sm)}
+  .chip.hit{background:var(--acc-soft);color:#a1510a}
+  .tag{font-family:var(--mono);font-size:10.5px;padding:3px 8px;border-radius:6px;background:var(--sunken);color:var(--ink-3)}
+
+  .body{flex:1 1 auto;min-height:0;display:flex}
+  .col{display:flex;flex-direction:column;min-height:0;overflow:auto;scrollbar-width:thin}
+  .side{background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column}
+  .sect{display:flex;align-items:center;gap:10px;margin:22px 0 10px}
+  .sect::after{content:"";flex:1;height:1px;background:var(--line)}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+  .card > .hd{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--line)}
+  .card .name{font-size:13px;font-weight:600}
+
+  /* 表单 */
+  .field{margin-bottom:16px}
+  .field > .lbl{display:block;margin-bottom:7px}
+  .inp,select,textarea{width:100%;background:var(--canvas);border:1px solid var(--line);border-radius:10px;
+      padding:9px 11px;font:13px var(--sans);color:var(--ink-2);outline:none;resize:none}
+  .inp:focus,select:focus,textarea:focus{border-color:rgba(254,130,16,.55);background:#fff}
+  select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--ink-4) 50%),
+      linear-gradient(135deg,var(--ink-4) 50%,transparent 50%);
+      background-position:calc(100% - 15px) 16px,calc(100% - 10px) 16px;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+  .rowkv{display:grid;grid-template-columns:auto 1fr;gap:7px 14px;font-size:12.5px;color:var(--ink-2)}
+  .rowkv .k{font-family:var(--mono);font-size:10px;color:var(--ink-4);padding-top:3px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+     color:var(--ink-4);font-weight:400;padding:0 12px 8px 0}
+  td{padding:10px 12px 10px 0;border-top:1px solid var(--line);color:var(--ink-2)}
+  td.mono{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+  .sw{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--ink-3)}
+  .sw .track{margin-left:auto;width:32px;height:18px;border-radius:999px;background:#dfe3e8;position:relative;transition:background .18s}
+  .sw .track::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;
+      background:#fff;box-shadow:var(--shadow-sm);transition:transform .18s}
+  .sw.on .track{background:var(--acc)}
+  .sw.on .track::after{transform:translateX(14px)}
+
+  /* 图卡 */
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fill,minmax(168px,1fr))}
+  .photo{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--line);background:var(--sunken);
+         aspect-ratio:1/1;box-shadow:var(--shadow-sm)}
+  .photo img{width:100%;height:100%;object-fit:cover}
+  .photo .cap{position:absolute;left:9px;right:9px;bottom:9px;display:flex;justify-content:space-between;gap:6px;
+              font-size:11px;color:#fff}
+  .photo .cap span{background:rgba(20,22,26,.6);border-radius:6px;padding:2px 7px;backdrop-filter:blur(3px)}
+  .photo .pick{position:absolute;top:9px;right:9px;width:18px;height:18px;border-radius:6px;background:rgba(255,255,255,.92);
+               border:1px solid var(--line-2);display:grid;place-items:center;font-size:11px;color:transparent}
+  .photo.sel{border-color:var(--acc);box-shadow:0 0 0 2px var(--acc-soft)}
+  .photo.sel .pick{background:var(--acc);border-color:var(--acc);color:#fff}
+  .photo.empty{display:flex;align-items:center;justify-content:center;border-style:dashed;background:transparent;
+               box-shadow:none;color:var(--ink-4);font-size:12.5px}
+
+  /* Agent 页 */
+  .feed{flex:1 1 auto;padding:26px 30px 8px;max-width:920px}
+  .dividerline{display:flex;align-items:center;gap:10px;margin:0 0 20px}
+  .dividerline::before,.dividerline::after{content:"";height:1px;background:var(--line);flex:1}
+  .me{display:flex;justify-content:flex-end;margin-bottom:24px}
+  .me .bub{background:var(--sunken);border-radius:14px 14px 4px 14px;padding:11px 14px;max-width:62%}
+  .me .shot{width:104px;height:104px;object-fit:cover;border-radius:10px;margin-top:10px;border:1px solid var(--line-2)}
+  .bot{display:flex;gap:12px;margin-bottom:24px}
+  .bot .av{width:30px;height:30px;flex:0 0 30px;border-radius:50%;background:linear-gradient(150deg,#fe8210,#f2543c);
+           color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700}
+  .bot .txt{max-width:70ch;color:var(--ink-2)}
+  .bot .txt b{color:var(--ink)}
+  .tabs{margin-left:auto;display:flex;gap:2px;background:var(--sunken);border-radius:8px;padding:2px}
+  .tabs button{padding:4px 10px;border-radius:6px;font-family:var(--mono);font-size:10.5px;color:var(--ink-4)}
+  .tabs button.on{background:var(--surface);color:var(--ink);box-shadow:var(--shadow-sm)}
+  .pane{display:none;padding:14px}
+  .pane.on{display:block}
+  .en{font-family:var(--mono);font-size:11.5px;line-height:1.8;color:var(--ink-2);background:var(--canvas);
+      border:1px solid var(--line);border-radius:10px;padding:11px 12px;white-space:pre-wrap}
+  .en em{color:var(--ink-4);font-style:normal}
+  .refrow{display:flex;gap:14px;padding:12px 14px;border-top:1px solid var(--line);align-items:center}
+  .refrow img{width:64px;height:64px;object-fit:cover;border-radius:9px;border:1px solid var(--line-2)}
+  .acts{display:flex;align-items:center;gap:10px;padding:12px 14px;border-top:1px solid var(--line);background:#fcfcfd}
+  .acts .note{margin-left:auto;font-size:11.5px;color:var(--ink-4)}
+
+  /* 队列行 */
+  .rows{flex:1 1 auto;overflow:auto}
+  .qrow{display:flex;gap:11px;padding:16px}
+  .qrow + .qrow{border-top:1px solid var(--line)}
+  .qrow:hover{background:var(--hover)}
+  .qrow .dot{width:7px;height:7px;border-radius:50%;margin-top:6px;flex:0 0 7px;background:var(--ink-4)}
+  .qrow[data-k="rule"] .dot{background:var(--acc)}
+  .qrow .line{font-size:13.5px;line-height:1.5}
+  .qrow .sub{margin-top:7px;font-family:var(--mono);font-size:10.5px;color:var(--ink-4);display:flex;gap:8px;flex-wrap:wrap}
+  .qrow .acts{display:flex;gap:6px;margin-top:9px;opacity:0;transition:opacity .15s}
+  .qrow:hover .acts,.qrow.open .acts{opacity:1}
+  .mini{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-size:13px;
+        border:1px solid var(--line-2);color:var(--ink-3);background:var(--surface)}
+  .mini.yes:hover{border-color:rgba(18,145,91,.5);color:#0e7a4d;background:#eaf7f1}
+  .mini.no:hover{border-color:rgba(214,61,45,.5);color:#b9382c;background:#fdeeec}
+  .why{display:none;gap:6px;margin-top:10px}
+  .qrow.open .why{display:flex}
+  .why input{flex:1 1 auto;background:var(--canvas);border:1px solid var(--line);border-radius:8px;padding:7px 9px;
+             font:12px var(--sans);color:var(--ink-2);outline:none}
+  .why input:focus{border-color:rgba(214,61,45,.5)}
+  .why button{font-size:11.5px;padding:7px 10px;border-radius:8px;border:1px solid rgba(214,61,45,.45);color:#b9382c}
+
+  /* 画布 */
+  .cvwrap{position:relative;flex:1 1 auto;background:#fbfbfc;overflow:hidden}
+  .cvwrap::before{content:"";position:absolute;inset:0;background-image:radial-gradient(rgba(16,24,40,.11) 1px,transparent 1px);
+                  background-size:24px 24px}
+  .floating{position:absolute;z-index:5;background:var(--surface);border:1px solid var(--line-2);border-radius:12px;
+            padding:5px;display:flex;gap:3px;box-shadow:var(--shadow)}
+  .tool{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:var(--ink-4)}
+  .tool:hover{background:var(--hover);color:var(--ink-2)}
+  .tool.on{background:var(--sunken);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+  .node{position:absolute;width:212px;background:var(--surface);border:1px solid var(--line-2);border-radius:12px;
+        padding:11px 12px;box-shadow:var(--shadow)}
+  .node.on{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-soft),var(--shadow)}
+  .node .nt{font-size:12.5px;font-weight:600;margin-bottom:6px;display:flex;align-items:center;gap:7px}
+  .node .np{font-size:12px;color:var(--ink-3);line-height:1.55}
+  .node .thumb{width:100%;height:76px;object-fit:cover;border-radius:8px;margin-top:8px;border:1px solid var(--line)}
+  .node .port{position:absolute;width:8px;height:8px;border-radius:50%;background:#fff;border:1.5px solid var(--line-2)}
+  .node .port.l{left:-4.5px;top:50%} .node .port.r{right:-4.5px;top:50%}
+  .edges{position:absolute;inset:0;pointer-events:none}
+  .insp{width:304px;flex:0 0 304px;background:var(--surface);border-left:1px solid var(--line);display:flex;flex-direction:column}
+
+  .flash{position:fixed;left:50%;bottom:24px;transform:translate(-50%,10px);background:var(--primary);color:#fff;
+         border-radius:10px;padding:9px 14px;font-size:12.5px;box-shadow:var(--shadow);opacity:0;pointer-events:none;
+         transition:opacity .18s,transform .18s;z-index:80}
+  .flash.on{opacity:1;transform:translate(-50%,0)}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <nav class="rail">
+    <div class="mark">N</div>
+    <button class="ico on" data-go="agent" title="Agent 对话"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5.5h16v10.5H9l-5 4z"/></svg></button>
+    <button class="ico" data-go="gen" title="生图工作台"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M4 15.5l4.5-4 3.5 2.5 3-2.5 5 5"/></svg></button>
+    <button class="ico" data-go="lib" title="我的素材"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="4.5" width="7" height="7" rx="2"/><rect x="13.5" y="4.5" width="7" height="7" rx="2"/><rect x="3.5" y="14.5" width="7" height="5" rx="2"/><rect x="13.5" y="14.5" width="7" height="5" rx="2"/></svg></button>
+    <button class="ico" data-go="canvas" title="无限画布"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 18.5L10 6l4 9 2-3 4 6.5z"/></svg></button>
+    <button class="ico" data-go="settings" title="设置" style="margin-top:auto"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.2M12 18.3v2.2M4.8 12H7M17 12h2.2M6.9 6.9l1.6 1.6M15.5 15.5l1.6 1.6M17.1 6.9l-1.6 1.6M8.5 15.5l-1.6 1.6"/></svg></button>
+  </nav>
+
+  <div class="stage">
+
+    <!-- ══ 1 · Agent 对话（聊天式 + 交付栏） ══ -->
+    <section class="screen on" id="s-agent">
+      <header class="bar">
+        <div class="seg"><button class="on" data-cat>捏捏乐</button><button data-cat>美妆</button><button data-cat>通用</button></div>
+        <button class="gbtn">＋ 新建类目</button>
+        <div class="right">
+          <div class="sub">包子捏捏 · 第 3 单</div>
+          <button class="gbtn" id="toQueue">记忆 <span class="badge" id="badge">3</span></button>
+        </div>
+      </header>
+      <div class="body">
+        <div class="col" style="flex:1 1 auto">
+          <div class="feed">
+            <div class="dividerline"><span class="lbl">会话开始 · 已注入 identity 8.4k + 命中 2 条</span></div>
+            <div class="me"><div class="bub">照着这张图出一组套图，主图强调「四件套」。<img class="shot" src="assets/bao-ref.png" alt="参考图"></div></div>
+            <div class="bot"><div class="av">N</div><div class="txt">
+              读图：<b>四色包子捏捏（黄/绿/白/紫）</b>，哑光慢回弹，白底无印刷字，食品造型。<br>
+              本单主张 <b>「四件成套，慢回弹看得见」</b>，机制用整齐排列 + 手捏特写，依据：件数与组合。</div></div>
+
+            <div class="card">
+              <div class="hd">
+                <span class="name">提案 1 / 4 · 主图</span>
+                <span class="mono">1:1 · 参考图 1 张 · 中英逐句对应</span>
+                <div class="tabs"><button class="on" data-pane="zh">中文稿</button><button data-pane="en">EN 生图版</button></div>
+              </div>
+              <div class="pane on" id="pane-zh"><div class="inp" contenteditable="true" style="line-height:1.7">四只包子造型捏捏呈 2×2 整齐排列于白色圆盘，浅色背景带柔和光斑与泡泡；每只颜色区分明确，表情朝向镜头；文字只保留产品名与件数，位置居中偏上。</div></div>
+              <div class="pane" id="pane-en"><div class="en">Four bun-shaped squeeze toys arranged in a tidy 2x2 grid on a white plate, soft light spots and bubbles in a pale background, each piece a distinct color, faces toward camera, product name and piece count only, centered upper area, square 1:1, ultra-detailed e-commerce quality.  <em>//　发给生图模型的是这一份</em></div></div>
+              <div class="refrow">
+                <img src="assets/bao-ref.png" alt="参考图">
+                <div class="rowkv">
+                  <span class="k">参考图</span><span>bao-ref.png · 唯一商品基准，造型与配色照它</span>
+                  <span class="k">模型</span><span>gpt-image-2 · 走图生图</span>
+                  <span class="k">记忆</span><span>命中「套装居中对称陈列」「价格贴不压商品名」</span>
+                </div>
+              </div>
+              <div class="acts">
+                <button class="pribtn" id="gen">确认并生图 <span class="kbd">⌘↵</span></button>
+                <button style="font-size:12.5px;color:var(--ink-3)">调整提案</button>
+                <span class="note">未确认不会发出生图请求</span>
+              </div>
+            </div>
+
+            <div class="sect"><span class="lbl">本轮出图 · 4 张</span></div>
+            <div class="grid" style="grid-template-columns:repeat(4,1fr)">
+              <div class="photo"><img src="assets/bao-main.png" alt="主图"><div class="cap"><span>主图</span><span>已完成</span></div></div>
+              <div class="photo"><img src="assets/bao-promo1.png" alt="宣传图1"><div class="cap"><span>宣传图1</span><span>已完成</span></div></div>
+              <div class="photo"><img src="assets/bao-promo2.png" alt="宣传图2"><div class="cap"><span>宣传图2</span><span>已完成</span></div></div>
+              <div class="photo"><img src="assets/bao-usage.png" alt="实际使用图"><div class="cap"><span>实际使用图</span><span>已完成</span></div></div>
+            </div>
+
+            <div class="sect"><span class="lbl">自检 · 出图前扫过</span></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px">
+              <span class="chip">禁词扫描 通过</span><span class="chip">参考图原文复用 0 处</span>
+              <span class="chip">同一单一致性 通过</span><span class="chip hit">主图 · 底部安全区 已提醒</span>
+            </div>
+          </div>
+          <div style="padding:0 30px 22px;max-width:920px">
+            <div class="card" style="border-radius:12px;margin-bottom:10px;padding:9px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;box-shadow:var(--shadow-sm)">
+              <span class="lbl">本轮记忆</span><span class="chip">identity 8.4k</span>
+              <span class="chip hit">命中 · 套装居中对称陈列</span><span class="chip hit">命中 · 价格贴不压商品名</span>
+              <span style="margin-left:auto;font-size:11.5px;color:var(--ink-4)">对话中不读不写 · 空闲 3 分钟才起草</span>
+            </div>
+            <div style="display:flex;align-items:flex-end;gap:10px;background:var(--surface);border:1px solid var(--line-2);
+                        border-radius:14px;padding:11px 12px;box-shadow:var(--shadow-sm)">
+              <button class="tool" title="上传图片"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V5"/><path d="M8 9l4-4 4 4"/><path d="M4 16.5v1.5A2 2 0 0 0 6 20h12a2 2 0 0 0 2-2v-1.5"/></svg></button>
+              <div contenteditable="true" style="flex:1;outline:none;min-height:22px;font-size:14px"
+                   data-ph="说要什么图型、几张、什么风格"></div>
+              <button class="tool on" id="send" title="发送"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V6"/><path d="M6 11l6-6 6 6"/></svg></button>
+            </div>
+          </div>
+        </div>
+        <aside class="side" id="side" style="width:360px;flex:0 0 360px">
+          <header style="padding:16px 16px 0;border-bottom:1px solid var(--line)">
+            <div style="display:flex;align-items:baseline;gap:8px">
+              <h2 style="margin:0;font-size:15px;font-weight:600">记忆</h2>
+              <span style="font-size:11.5px;color:var(--ink-4)"><span data-cat>捏捏乐</span> · 本类目独立</span>
+            </div>
+            <div style="display:flex;gap:16px;margin-top:14px">
+              <button style="font-size:12px;font-weight:600;padding-bottom:11px;box-shadow:inset 0 -2px 0 0 var(--acc)">待确认 <span id="qnum">3</span></button>
+              <button style="font-size:12px;color:var(--ink-4);padding-bottom:11px">规则</button>
+              <button style="font-size:12px;color:var(--ink-4);padding-bottom:11px">纠错</button>
+              <button style="font-size:12px;color:var(--ink-4);padding-bottom:11px">案例</button>
+            </div>
+          </header>
+          <div class="rows" id="rows">
+            <div class="qrow" data-k="fix"><span class="dot"></span><div style="flex:1;min-width:0">
+              <div class="line">价格贴不得压住商品名</div><div class="sub"><span>#主图</span><span>空闲心跳 18:32</span></div>
+              <div class="acts"><button class="mini yes" data-act="yes">✓</button><button class="mini no" data-act="no">✕</button></div></div></div>
+            <div class="qrow" data-k="lib"><span class="dot"></span><div style="flex:1;min-width:0">
+              <div class="line">套装图用居中对称陈列</div><div class="sub"><span>#套装</span><span>空闲心跳 18:32</span></div>
+              <div class="acts"><button class="mini yes" data-act="yes">✓</button><button class="mini no" data-act="no">✕</button></div></div></div>
+            <div class="qrow open" data-k="rule"><span class="dot"></span><div style="flex:1;min-width:0">
+              <div class="line">主图底部保留 ≥8% 纯空白</div><div class="sub"><span>#主图</span><span>待采纳 → 规则区</span><span>复发 3 次</span></div>
+              <div class="why"><input placeholder="驳回要写一句理由（会回流给 AI）"><button data-act="no">驳回</button></div>
+              <div class="acts"><button class="mini yes" data-act="yes">✓</button><button class="mini no" data-act="no">✕</button></div></div></div>
+          </div>
+          <footer style="border-top:1px solid var(--line);padding:12px 16px 14px">
+            <button class="pribtn" id="submitAll" style="width:100%;justify-content:center">写入全部 3 条 <span class="kbd">⌘⏎</span></button>
+            <div class="sw" style="margin-top:11px" onclick="this.classList.toggle('on');flash('会话状态：'+(this.classList.contains('on')?'自动写入':'仍需你确认'))">
+              <span>会话状态自动写入 · 默认关</span><span class="track"></span></div>
+          </footer>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ══ 2 · 生图工作台（左参数 右结果，参考 Weavy） ══ -->
+    <section class="screen" id="s-gen">
+      <header class="bar">
+        <span class="title">生图工作台</span>
+        <span class="sub">读图 → 定稿 → 批量出图</span>
+        <div class="right">
+          <div class="seg"><button class="on">图生图</button><button>文生图</button><button>批量套图</button></div>
+          <button class="pribtn">提交 4 张 <span class="kbd">⌘↵</span></button>
+        </div>
+      </header>
+      <div class="body">
+        <div class="col" style="width:316px;flex:0 0 316px;background:var(--surface);border-right:1px solid var(--line);padding:18px">
+          <div class="field"><span class="lbl">参考图 · 铁律：没有参考图不出图</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <img src="assets/bao-ref.png" style="width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line-2)">
+              <img src="assets/real-4.png" style="width:72px;height:72px;object-fit:cover;border-radius:10px;border:1px solid var(--line-2)">
+              <button class="gbtn" style="width:72px;height:72px;justify-content:center;border-style:dashed;color:var(--ink-4)">＋</button>
+            </div>
+          </div>
+          <div class="field"><span class="lbl">渠道</span>
+            <select><option>苍云算力中转 · gpt-image-2</option><option>opencode zen Go · gpt-image-2</option></select></div>
+          <div class="field"><span class="lbl">比例</span>
+            <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="chip on">1:1</button><button class="chip">4:5</button><button class="chip">16:9</button><button class="chip">按参考图</button></div></div>
+          <div class="field"><span class="lbl">质量 / 风格 / 背景</span>
+            <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="chip on">high</button><button class="chip">medium</button><button class="chip">low</button><button class="chip">vivid</button><button class="chip on">auto</button></div></div>
+          <div class="field"><span class="lbl">中文稿（审这一份，英文稿自动逐句对应）</span>
+            <textarea rows="5" style="line-height:1.6">四只包子造型捏捏呈 2×2 整齐排列于白色圆盘，浅色背景带柔和光斑与泡泡；每只颜色区分明确，表情朝向镜头。</textarea></div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;padding:9px 11px;border:1px solid var(--line);border-radius:10px;background:var(--canvas)">
+            <span class="lbl" style="width:100%">本次将带上的记忆</span>
+            <span class="chip">identity 8.4k</span><span class="chip hit">纠错 2 条</span><span class="chip">案例 1 条</span>
+          </div>
+        </div>
+        <div class="col" style="flex:1 1 auto">
+          <div style="display:flex;align-items:center;gap:12px;padding:13px 20px;border-bottom:1px solid var(--line)">
+            <span class="lbl">队列 4 张</span>
+            <span class="mono">并发 8 · 已完成 3 · 队列 1 · 均耗时 47s</span>
+            <div class="right"><button class="gbtn">重跑失败项</button><button class="gbtn">全部下载</button></div>
+          </div>
+          <div style="padding:18px 20px">
+            <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(184px,1fr))">
+              <div class="photo"><img src="assets/bao-main.png"><div class="cap"><span>主图</span><span>47s</span></div></div>
+              <div class="photo"><img src="assets/bao-promo1.png"><div class="cap"><span>宣传图1</span><span>52s</span></div></div>
+              <div class="photo"><img src="assets/bao-promo2.png"><div class="cap"><span>宣传图2</span><span>44s</span></div></div>
+              <div class="photo" style="border-style:dashed;box-shadow:none">
+                <img src="assets/bao-usage.png" style="opacity:.45">
+                <div class="cap"><span>实际使用图</span><span>生成中 12s</span></div></div>
+              <div class="photo empty">＋ 再加一张</div>
+            </div>
+            <div class="sect"><span class="lbl">终审结果</span></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <span class="chip">禁词扫描 通过</span><span class="chip">参考图原文复用 0 处</span>
+              <span class="chip">同一单一致性 通过</span><span class="chip hit">主图 · 底部安全区 未过 → 已标记</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ 3 · 我的素材（侧栏 + 浅色网格，参考星流） ══ -->
+    <section class="screen" id="s-lib">
+      <header class="bar">
+        <span class="title">我的素材</span>
+        <span class="sub">本地素材库 · 另有 3 条来自抓图</span>
+        <div class="right">
+          <input class="inp" placeholder="搜商品名 / 标签 / 文件名" style="width:240px">
+          <div class="seg"><button class="on">网格</button><button>列表</button></div>
+        </div>
+      </header>
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 20px;border-bottom:1px solid var(--line);flex-wrap:wrap;background:var(--surface)">
+        <span class="lbl">筛选</span>
+        <button class="chip on">全部类目</button><button class="chip">捏捏乐</button><button class="chip">美妆</button><button class="chip">通用</button>
+        <span style="width:1px;height:18px;background:var(--line)"></span>
+        <button class="chip on">全部图型</button><button class="chip">主图</button><button class="chip">宣传图</button><button class="chip">实际使用图</button>
+        <span style="width:1px;height:18px;background:var(--line)"></span>
+        <button class="chip on">最近 30 天</button><button class="chip">未打标签</button>
+      </div>
+      <div class="body">
+        <div class="col" style="flex:1 1 auto;padding:18px 20px">
+          <div class="grid">
+            <div class="photo sel"><span class="pick">✓</span><img src="assets/bao-main.png"><div class="cap"><span>包子捏捏 主图</span><span>主图</span></div></div>
+            <div class="photo sel"><span class="pick">✓</span><img src="assets/bao-promo1.png"><div class="cap"><span>包子捏捏 宣传1</span><span>宣传图</span></div></div>
+            <div class="photo sel"><span class="pick">✓</span><img src="assets/bao-usage.png"><div class="cap"><span>包子捏捏 使用图</span><span>使用图</span></div></div>
+            <div class="photo"><span class="pick">✓</span><img src="assets/real-1.png"><div class="cap"><span>第2单 主图</span><span>主图</span></div></div>
+            <div class="photo"><span class="pick">✓</span><img src="assets/real-2.png"><div class="cap"><span>第2单 使用图</span><span>使用图</span></div></div>
+            <div class="photo"><span class="pick">✓</span><img src="assets/real-3.png"><div class="cap"><span>第2单 宣传图</span><span>宣传图</span></div></div>
+            <div class="photo"><span class="pick">✓</span><img src="assets/bao-ref.png"><div class="cap"><span>包子捏捏 参考图</span><span>参考图</span></div></div>
+            <div class="photo"><span class="pick">✓</span><img src="assets/real-4.png"><div class="cap"><span>雪花款 参考</span><span>参考图</span></div></div>
+            <div class="photo"><span class="pick">✓</span><img src="assets/real-5.png"><div class="cap"><span>风格参考</span><span>参考图</span></div></div>
+          </div>
+        </div>
+        <aside class="side" style="width:272px;flex:0 0 272px;padding:18px">
+          <span class="lbl" id="selCount">已选 3 张</span>
+          <div class="rowkv" style="margin-top:12px">
+            <span class="k">用途</span><span>作为套图参考图</span>
+            <span class="k">类目</span><span>捏捏乐</span>
+            <span class="k">去重</span><span>3 张均未重复</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:9px;margin-top:18px">
+            <button class="pribtn" style="justify-content:center">加入生图工作台</button>
+            <button class="gbtn" style="justify-content:center">批量打标签</button>
+            <button class="gbtn" style="justify-content:center">导出所选</button>
+          </div>
+          <div style="margin-top:auto;padding-top:18px;border-top:1px solid var(--line)">
+            <div class="lbl" style="margin-bottom:10px">来源</div>
+            <div class="rowkv"><span class="k">本地导入</span><span>8 张</span><span class="k">抓图</span><span>3 张</span><span class="k">出图回存</span><span>5 张</span></div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ══ 4 · 无限画布（浅色节点，参考 Comfy） ══ -->
+    <section class="screen" id="s-canvas">
+      <header class="bar">
+        <span class="title">无限画布</span>
+        <span class="sub">捏捏乐 · 包子捏捏 · 自动保存</span>
+        <div class="right"><button class="gbtn">导出 PNG</button><button class="gbtn">素材库</button><button class="pribtn">从这里出图</button></div>
+      </header>
+      <div class="body">
+        <div class="cvwrap">
+          <div class="floating" style="left:18px;top:18px">
+            <button class="tool on"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 3l14 8-6 1.5-2.5 6z"/></svg></button>
+            <button class="tool"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/><path d="M4 15.5l4.5-4 3.5 2.5 3-2.5 5 5"/></svg></button>
+            <button class="tool"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 4h12M12 4v16M8 20h8"/></svg></button>
+            <button class="tool"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M7.4 16.6C10 14 12 12 16.6 7.4"/></svg></button>
+          </div>
+          <div class="floating" style="left:18px;bottom:18px"><button class="tool">−</button><span class="mono" style="padding:8px 6px">100%</span><button class="tool">＋</button></div>
+          <svg class="edges">
+            <path d="M330 140 C 384 140, 384 254, 432 254" stroke="rgba(16,24,40,.30)" fill="none" stroke-width="1.5"/>
+            <path d="M644 254 C 706 254, 706 291, 764 291" stroke="rgba(16,24,40,.30)" fill="none" stroke-width="1.5"/>
+          </svg>
+          <div class="node" style="left:118px;top:64px"><span class="port r"></span>
+            <div class="nt"><span class="tag">参考图</span> bao-ref</div>
+            <div class="np">四色包子捏捏 · 哑光慢回弹 · 白底</div>
+            <img class="thumb" src="assets/bao-ref.png" alt="">
+          </div>
+          <div class="node on" style="left:432px;top:154px"><span class="port l"></span><span class="port r"></span>
+            <div class="nt"><span class="tag" style="background:var(--acc-soft);color:#a1510a">提案</span> 主图 · 1:1</div>
+            <div class="np">2×2 整齐排列于白色圆盘，浅色背景带光斑与泡泡。<br><span class="mono">命中记忆 2 条</span></div>
+            <img class="thumb" src="assets/bao-main.png" alt="">
+          </div>
+          <div class="node" style="left:764px;top:246px"><span class="port l"></span>
+            <div class="nt"><span class="tag">出图</span> gpt-image-2</div>
+            <div class="np">已出 3 张 · 1 张队列中 · 42–52s / 张</div>
+          </div>
+        </div>
+        <aside class="insp">
+          <header style="padding:14px 16px;border-bottom:1px solid var(--line)">
+            <span class="lbl">选中节点</span>
+            <div style="font-size:13.5px;font-weight:600;margin-top:5px">提案 · 主图 1:1</div>
+          </header>
+          <div class="col" style="padding:16px;flex:1 1 auto">
+            <div class="rowkv">
+              <span class="k">比例</span><span>1:1</span>
+              <span class="k">模型</span><span>gpt-image-2</span>
+              <span class="k">参考图</span><span>bao-ref</span>
+              <span class="k">记忆</span><span>identity 8.4k · 命中 2 条</span>
+            </div>
+            <div style="margin-top:16px"><span class="lbl">节点提示词</span>
+              <div class="inp" contenteditable="true" style="margin-top:7px;line-height:1.65">2×2 整齐排列于白色圆盘，浅色背景带柔和光斑与泡泡。</div></div>
+            <div style="margin-top:16px"><span class="lbl">上游连线</span><div class="mono" style="margin-top:7px">← 参考图 bao-ref</div></div>
+          </div>
+          <footer style="border-top:1px solid var(--line);padding:12px 16px;display:flex;gap:9px">
+            <button class="pribtn" style="flex:1;justify-content:center">出图</button>
+            <button class="gbtn">复制</button>
+          </footer>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ══ 5 · 设置 ══ -->
+    <section class="screen" id="s-settings">
+      <header class="bar"><span class="title">设置</span>
+        <span class="sub">配置存在本机 · 换电脑要重新导入一次</span>
+        <div class="right"><button class="gbtn">导入备份</button><button class="gbtn">导出备份</button></div>
+      </header>
+      <div class="body">
+        <div class="col" style="width:212px;flex:0 0 212px;background:var(--surface);border-right:1px solid var(--line);padding:12px 10px;gap:2px">
+          <button class="gbtn" style="justify-content:flex-start;border-color:transparent;background:var(--sunken);color:var(--ink);font-weight:600">供应商与模型</button>
+          <button class="gbtn" style="justify-content:flex-start;border-color:transparent;background:none">工作类目与记忆</button>
+          <button class="gbtn" style="justify-content:flex-start;border-color:transparent;background:none">出图默认值</button>
+          <button class="gbtn" style="justify-content:flex-start;border-color:transparent;background:none">数据与备份</button>
+          <button class="gbtn" style="justify-content:flex-start;border-color:transparent;background:none">软件更新</button>
+        </div>
+        <div class="col" style="flex:1 1 auto;padding:22px 26px">
+          <span class="lbl">供应商</span>
+          <div style="display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 26px">
+            <div class="card" style="padding:14px;min-width:280px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:13px;font-weight:600">苍云算力中转</span>
+                <span class="chip" style="background:#eaf7f1;color:#0e7a4d">已连通</span></div>
+              <div class="mono" style="margin-top:8px">direct-api.cangyuansuanli.cn/v1</div>
+              <div class="mono" style="margin-top:4px">模型 gpt-image-2 · 58 个可用</div>
+            </div>
+            <div class="card" style="padding:14px;min-width:280px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:13px;font-weight:600">opencode zen Go</span>
+                <span class="chip" style="background:#eaf7f1;color:#0e7a4d">已连通</span></div>
+              <div class="mono" style="margin-top:8px">opencode.ai/zen/go/v1</div>
+              <div class="mono" style="margin-top:4px">deepseek-v4.1-flash · 需 x-opencode-session 头</div>
+            </div>
+          </div>
+
+          <span class="lbl">默认模型映射</span>
+          <table style="margin:12px 0 26px">
+            <tr><th>用途</th><th>模型</th><th>说明</th></tr>
+            <tr><td>Agent 对话</td><td class="mono">deepseek-v4.1-flash</td><td>文本类全用它</td></tr>
+            <tr><td>生图 / 切图编辑</td><td class="mono">gpt-image-2</td><td>走图生图，需参考图</td></tr>
+            <tr><td>反推提示词</td><td class="mono">deepseek-v4.1-flash</td><td>模式：风格提取</td></tr>
+            <tr><td>图片描述</td><td class="mono">deepseek-v4.1-flash</td><td>上传后自动跑一次</td></tr>
+            <tr><td>记忆起草 · 复盘</td><td class="mono">deepseek-v4.1-flash</td><td>空闲心跳触发</td></tr>
+          </table>
+
+          <span class="lbl">记忆</span>
+          <div class="rowkv" style="margin:12px 0 26px">
+            <span class="k">存储位置</span><span>应用数据目录（安装目录之外，更新不会清）</span>
+            <span class="k">类目</span><span>捏捏乐 / 美妆 / 通用 —— 三套独立，互不可见</span>
+            <span class="k">读点</span><span>会话开始 · 有新图上传；对话中不读不写</span>
+            <span class="k">写点</span><span>空闲 3 分钟心跳 → 起草 → 待你确认</span>
+            <span class="k">上限</span><span class="mono">单条 800 字 · 命中注入 8 条/6000 字 · 规则 32768 字</span>
+          </div>
+
+          <span class="lbl">软件更新</span>
+          <div class="card" style="display:flex;align-items:center;gap:14px;padding:14px;margin-top:12px">
+            <div>
+              <div class="mono" style="color:var(--ink-2)">当前版本 3.4.8 · 通道 L（仅通用）</div>
+              <div class="mono" style="margin-top:4px">最近检查：2 分钟前 · 已是最新</div>
+            </div>
+            <div class="right"><button class="gbtn">检查更新</button><button class="gbtn">打开发布页</button></div>
+          </div>
+
+          <span class="lbl" style="display:block;margin-top:26px">行为</span>
+          <div style="display:flex;flex-direction:column;gap:14px;margin-top:12px;max-width:560px">
+            <div class="sw on" onclick="this.classList.toggle('on')"><span>出图前必须引用参考图（铁律）</span><span class="track"></span></div>
+            <div class="sw on" onclick="this.classList.toggle('on')"><span>记忆写入需你确认</span><span class="track"></span></div>
+            <div class="sw" onclick="this.classList.toggle('on')"><span>会话状态自动写入</span><span class="track"></span></div>
+            <div class="sw on" onclick="this.classList.toggle('on')"><span>仅监听本机（127.0.0.1）</span><span class="track"></span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+<div class="flash" id="flash"></div>
+
+<script>
+  const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+  let t; function flash(m){const e=$('#flash');e.textContent=m;e.classList.add('on');
+    clearTimeout(t);t=setTimeout(()=>e.classList.remove('on'),1800)}
+  window.flash=flash;
+
+  function go(id){
+    $$('.screen').forEach(s=>s.classList.toggle('on', s.id==='s-'+id));
+    $$('.ico').forEach(b=>b.classList.toggle('on', b.dataset.go===id));
+    location.hash=id;
+  }
+  $$('.ico[data-go]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.go)));
+  const h=(location.hash||'#agent').slice(1);
+  go(['agent','gen','lib','canvas','settings'].includes(h)?h:'agent');
+
+  $$('.seg button[data-cat]').forEach(b=>b.addEventListener('click',()=>{
+    $$('.seg button[data-cat]').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+    $$('[data-cat]').forEach(s=>{ if(s.tagName!=='BUTTON') s.textContent=b.textContent; });
+    flash('已切到 '+b.textContent+' · 记忆与对话整套切换');
+  }));
+  $$('.tabs button').forEach(b=>b.addEventListener('click',()=>{
+    $$('.tabs button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+    $('#pane-zh').classList.toggle('on', b.dataset.pane==='zh');
+    $('#pane-en').classList.toggle('on', b.dataset.pane==='en');
+  }));
+  function refresh(){
+    const n=$$('#rows .qrow:not(.done)').length;
+    $('#badge').textContent=n; $('#qnum').textContent=n;
+    $('#submitAll').innerHTML = n? '写入全部 '+n+' 条 <span class="kbd">⌘⏎</span>' : '暂无待确认';
+  }
+  function settle(row,msg){
+    row.classList.add('done'); row.style.transition='opacity .18s'; row.style.opacity='0';
+    setTimeout(()=>{row.style.display='none';refresh()},200); flash(msg);
+  }
+  $('#rows').addEventListener('click',e=>{
+    const row=e.target.closest('.qrow'); if(!row) return;
+    const btn=e.target.closest('.mini, .why button');
+    if(!btn){ row.classList.toggle('open'); return; }
+    if(btn.dataset.act==='yes'){ settle(row, row.dataset.k==='rule'?'已采纳进规则区':'已写入本类目记忆'); return; }
+    const inp=row.querySelector('.why input');
+    if(row.classList.contains('open') && inp && !inp.value.trim()){ inp.focus(); flash('驳回要写一句理由，会回流给 AI'); return; }
+    settle(row,'已驳回 · 理由已记，之后不再重复提');
+  });
+  $('#submitAll').addEventListener('click',()=>{
+    const list=$$('#rows .qrow:not(.done)');
+    if(!list.length) return flash('没有待确认的条目');
+    list.forEach((r,i)=>setTimeout(()=>settle(r,'已写入 1 条'),i*160));
+  });
+  // 素材多选
+  $$('#s-lib .photo').forEach(p=>p.addEventListener('click',()=>{
+    p.classList.toggle('sel');
+    $('#selCount').textContent='已选 '+$$('#s-lib .photo.sel').length+' 张';
+  }));
+  // 画布节点
+  $$('.node').forEach(n=>n.addEventListener('click',()=>{$$('.node').forEach(x=>x.classList.remove('on'));n.classList.add('on')}));
+  // chip 单选
+  $$('.field').forEach(f=>f.addEventListener('click',e=>{
+    const b=e.target.closest('.chip'); if(!b) return;
+    f.querySelectorAll('.chip').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  }));
+  $('#gen').addEventListener('click',()=>flash('已提交生成 · 4 张，逐张出图'));
+  $('#send').addEventListener('click',()=>flash('样品演示：不发真实请求'));
+  $('#toQueue').addEventListener('click',()=>$('#side').scrollIntoView({behavior:'smooth',block:'nearest'}));
+  refresh();
+</script>
+</body>
+</html>

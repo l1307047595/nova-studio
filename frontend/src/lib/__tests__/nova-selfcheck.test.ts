@@ -95,6 +95,15 @@ describe('出图自检判据：新增文案不是问题', () => {
     expect(AGENT_SELF_CHECK_PROMPT).toContain('只按下面给出的违禁词表判断');
     expect(AGENT_SELF_CHECK_PROMPT).toContain('违禁词表');
   });
+
+  it('数量以「本单要求」为准，不拿参考图件数去卡（单件白底图 → 多 PCS 套装是正常需求）', () => {
+    expect(AGENT_SELF_CHECK_PROMPT).toContain('本单要求');
+    expect(AGENT_SELF_CHECK_PROMPT).toContain('不要拿参考图的件数去卡');
+    // 件数不符只和本单要求比，不和参考图比
+    expect(AGENT_SELF_CHECK_PROMPT).toContain('只和本单要求比');
+    // 保留外观保真与合规两条主线
+    expect(AGENT_SELF_CHECK_PROMPT).toContain('商品外观');
+  });
 });
 
 describe('extractComplianceRules', () => {

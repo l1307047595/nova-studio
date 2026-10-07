@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   Copy,
+  Download,
   FileArchive,
   FileText,
   Grid3X3,
@@ -60,13 +61,51 @@ function getAgentImageSourceBadge(source: AgentImageRecord['source']): string {
   return '上传';
 }
 
+function sanitizeFilePart(value: string, maxLength = 40): string {
+  return String(value || '')
+    .replace(/[\\/:*?"<>|\s]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, maxLength);
+}
+
+/**
+ * 起一个能区分的下载文件名（不带扩展名）：`序号_来源_商品或描述_imgId`。
+ * 例：`01_生成_捏捏乐-圣诞款_img_12`、`02_参考_白底主图_img_3`。
+ * 批量下载时不会互相覆盖，也不用靠 img_12 这种看不出是什么的编号。
+ */
+function buildAgentImageBaseName(record: AgentImageRecord, index: number): string {
+  const sourceLabel = record.source === 'generated' ? '生成' : record.source === 'asset' ? '素材' : '参考';
+  const tag = sanitizeFilePart(record.productName || '')
+    || sanitizeFilePart(getUsableDescription(record.description) || '')
+    || '图片';
+  const seq = String(index + 1).padStart(2, '0');
+  return `${seq}_${sourceLabel}_${tag}_${record.imgId}`;
+}
+
+/** 触发一次浏览器下载（逐个下载时复用） */
+function triggerDownload(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function getBlobExtension(blob: Blob): string {
+  return (blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+}
+
 export function AgentImageGallery({ images, sessionId, onRedescribe, onSelfCheck }: AgentImageGalleryProps) {
   const [open, setOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [previewImages, setPreviewImages] = useState<string[] | null>(null);
   const [previewSourceImages, setPreviewSourceImages] = useState<AgentImageRecord[]>([]);
   const [previewIndex, setPreviewIndex] = useState(0);
-  const [downloading, setDownloading] = useState(false);
+  const [downloadMode, setDownloadMode] = useState<'files' | 'zip' | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [descDialogImg, setDescDialogImg] = useState<{ imgId: string; description: string } | null>(null);
   const [isSelfChecking, setIsSelfChecking] = useState(false);
@@ -112,17 +151,21 @@ export function AgentImageGallery({ images, sessionId, onRedescribe, onSelfCheck
 
   useEffect(() => revokePreviewUrls, [revokePreviewUrls]);
 
-  const makeActionPayload = useCallback((img: AgentImageRecord): ImageActionPayload => ({
-    id: img.imgId,
-    name: img.imgId,
-    agentImageId: img.imgId,
-    sourceKind: 'agent',
-    sourceLabel: getAgentImageSourceLabel(img.source),
-    sourceRef: img.imgId,
-    prompt: getUsableDescription(img.description) || img.description,
-    note: getUsableDescription(img.description),
-    sessionId,
-  }), [sessionId]);
+  const makeActionPayload = useCallback((img: AgentImageRecord): ImageActionPayload => {
+    const index = Math.max(0, images.findIndex(item => item.imgId === img.imgId));
+    return {
+      id: img.imgId,
+      // 单张下载/存素材也用可区分的名字（原先直接是 img_1）
+      name: buildAgentImageBaseName(img, index),
+      agentImageId: img.imgId,
+      sourceKind: 'agent',
+      sourceLabel: getAgentImageSourceLabel(img.source),
+      sourceRef: img.imgId,
+      prompt: getUsableDescription(img.description) || img.description,
+      note: getUsableDescription(img.description),
+      sessionId,
+    };
+  }, [images, sessionId]);
 
   // 搜索过滤
   const filteredImages = useMemo(() => {
@@ -151,39 +194,43 @@ export function AgentImageGallery({ images, sessionId, onRedescribe, onSelfCheck
     });
   }, [filteredImages]);
 
-  // 打包下载 ZIP
-  const handleDownloadSelected = useCallback(async () => {
+  // 下载选中的图片：默认「逐个下载」（一张张落盘，不用解压），也可选打包 ZIP
+  const handleDownload = useCallback(async (mode: 'files' | 'zip') => {
     if (selectedIds.size === 0) return;
-    setDownloading(true);
+    setDownloadMode(mode);
     try {
-      const zip = new JSZip();
-      const entries = await Promise.all(
-        Array.from(selectedIds).map(async (imgId) => {
-          const record = images.find(i => i.imgId === imgId);
-          const blob = await getAgentImageBytes(imgId, sessionId);
-          if (!blob || !record) return null;
-          const ext = (blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
-          return { imgId, blob, ext, description: record.description };
-        }),
-      );
-      const validEntries = entries.filter(Boolean);
-      // 添加描述文件
-      let readme = 'Agent 对话图片导出\n\n';
-      for (const entry of validEntries) {
-        readme += `${entry!.imgId}.${entry!.ext}\n`;
-        readme += `  描述: ${entry!.description}\n\n`;
-        zip.file(`${entry!.imgId}.${entry!.ext}`, entry!.blob);
+      const selected = Array.from(selectedIds)
+        .map(id => images.find(i => i.imgId === id))
+        .filter((record): record is AgentImageRecord => Boolean(record));
+      if (mode === 'zip') {
+        const zip = new JSZip();
+        let readme = 'Agent 对话图片导出\n\n';
+        let index = 0;
+        for (const record of selected) {
+          const blob = await getAgentImageBytes(record.imgId, sessionId);
+          if (!blob) { index += 1; continue; }
+          const name = `${buildAgentImageBaseName(record, index)}.${getBlobExtension(blob)}`;
+          zip.file(name, blob);
+          readme += `${name}\n  描述: ${record.description}\n\n`;
+          index += 1;
+        }
+        zip.file('README.txt', readme);
+        const content = await zip.generateAsync({ type: 'blob' });
+        triggerDownload(content, `agent-images-${Date.now()}.zip`);
+        return;
       }
-      zip.file('README.txt', readme);
-      const content = await zip.generateAsync({ type: 'blob' });
-      const url = URL.createObjectURL(content);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `agent-images-${Date.now()}.zip`;
-      link.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      // 逐个下载：每张一个可区分的文件名，逐张落盘（留一点间隔，避免被浏览器合并/拦截）
+      let index = 0;
+      for (const record of selected) {
+        const blob = await getAgentImageBytes(record.imgId, sessionId);
+        if (blob) {
+          triggerDownload(blob, `${buildAgentImageBaseName(record, index)}.${getBlobExtension(blob)}`);
+          await new Promise(resolve => setTimeout(resolve, 120));
+        }
+        index += 1;
+      }
     } finally {
-      setDownloading(false);
+      setDownloadMode(null);
     }
   }, [selectedIds, images, sessionId]);
 
@@ -262,20 +309,36 @@ export function AgentImageGallery({ images, sessionId, onRedescribe, onSelfCheck
             <Button
               variant="default"
               size="sm"
-              onClick={handleDownloadSelected}
-              disabled={selectedCount === 0 || downloading}
+              onClick={() => void handleDownload('files')}
+              disabled={selectedCount === 0 || downloadMode !== null}
               className="shrink-0 gap-1.5"
+              title="逐张下载（不打包；文件名带序号/来源/商品，便于区分）"
             >
-              {downloading ? (
+              {downloadMode === 'files' ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Download className="h-3.5 w-3.5" />
+              )}
+              {downloadMode === 'files'
+                ? '下载中…'
+                : selectedCount > 0
+                  ? `下载 (${selectedCount})`
+                  : '下载'}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void handleDownload('zip')}
+              disabled={selectedCount === 0 || downloadMode !== null}
+              className="shrink-0 gap-1.5"
+              title="打包成一个 ZIP 下载（含描述 README）"
+            >
+              {downloadMode === 'zip' ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <FileArchive className="h-3.5 w-3.5" />
               )}
-              {downloading
-                ? '打包中…'
-                : selectedCount > 0
-                  ? `打包下载 (${selectedCount})`
-                  : '打包下载'}
+              ZIP
             </Button>
           </div>
 
@@ -319,10 +382,8 @@ export function AgentImageGallery({ images, sessionId, onRedescribe, onSelfCheck
                       <span className={cn(
                         'absolute right-1.5 top-1.5 rounded px-1 text-[9px] font-medium',
                         img.source === 'generated'
-                          ? 'bg-green-500/70 text-white'
-                          : img.source === 'asset'
-                            ? 'bg-violet-500/70 text-white'
-                            : 'bg-blue-500/70 text-white'
+                          ? 'bg-[var(--brand-soft)] text-[var(--brand-ink)]'
+                          : 'bg-secondary text-muted-foreground'
                       )}>
                         {getAgentImageSourceBadge(img.source)}
                       </span>

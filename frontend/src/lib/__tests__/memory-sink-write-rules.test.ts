@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { assessDepositSubstance, dedupeDrafts, isUsableDraft, normalizeDraftTags } from '@/lib/nova-memory-sink';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  SINK_CAPS,
+  assessDepositSubstance,
+  dedupeDrafts,
+  isUsableDraft,
+  normalizeDraftTags,
+  sinkAgentMemory,
+} from '@/lib/nova-memory-sink';
 
 // 回归：这些是真实从「空闲心跳」漏进待确认队列的脏数据（用户 2026-09-22 截图）。
 // 写入判据改严后，机械可判的必须被挡在队列外；语义类（提示词正文）靠起草提示词里的判据 + 自检挡。
@@ -140,5 +147,62 @@ describe('沉淀前置门（assessDepositSubstance）', () => {
   it('用户只回「好的」，但助手侧有任务落地痕迹 → 仍算有进展', () => {
     const verdict = assessDepositSubstance('用户：好的\n\n助手：4 张图已出图完成，可在任务列表查看');
     expect(verdict.substantive).toBe(true);
+  });
+});
+
+// 回归：用户 2026-10 反馈「动不动就十多条待确认」。根因是起草提示词写了上限、代码没强制，
+// 模型一轮吐 5+5+5 条就全进队列。这里验证代码侧按 SINK_CAPS 截断。
+describe('沉淀条数上限（代码强制截断）', () => {
+  function proxyResponse(content: string): Response {
+    return new Response(JSON.stringify({ choices: [{ message: { content } }] }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }
+
+  it('模型一轮吐 5+5+5 条 → 截断为 feedback≤2 / library≤2 / proposal≤1', async () => {
+    const modelJson = JSON.stringify({
+      feedback: [1, 2, 3, 4, 5].map(n => `纠错${n}：以后要这么做 —— 原因${n} #商品 #主图`),
+      library: [1, 2, 3, 4, 5].map(n => `案例${n}的做法 —— 适用条件${n} #商品 #主图`),
+      proposals: [1, 2, 3, 4, 5].map(n => `建议${n}\n- 标签：#商品 #主图\n- 判据：情况${n}\n- 规则：做法${n}\n- 来源：依据${n}`),
+      session: '商品：已出主图；还差卖点图',
+      recent: '主张=极简 | 骨架机位=正面平视 | 色族=奶油粉',
+      skip: '',
+    });
+
+    const fetchMock = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      const target = String(url);
+      if (target.includes('/api/nova/proxy/text')) return proxyResponse(modelJson);
+      if (target.includes('/api/nova/memory/pending')) {
+        if (init?.method === 'POST') {
+          return new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        return new Response(JSON.stringify({ items: [], rejected: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await sinkAgentMemory({
+      apiKey: 'k',
+      model: 'm',
+      protocol: 'openai-chat-completions',
+      baseUrl: 'http://example.invalid',
+      sessionId: 's1',
+      transcript: '用户：背景太白了，改成深绿\n\n助手：好的，已改',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.feedback).toBe(SINK_CAPS.feedback);
+    expect(result.library).toBe(SINK_CAPS.library);
+    expect(result.proposals).toBe(SINK_CAPS.proposal);
+    expect(result.recent).toBe(SINK_CAPS.recent);
+    // 入队总数 = 被截断后的各项 + 会话状态 1 条，远小于模型吐出的 16 条
+    expect(result.queued).toBe(
+      SINK_CAPS.feedback + SINK_CAPS.library + SINK_CAPS.proposal + SINK_CAPS.recent + 1,
+    );
+    expect(result.filtered).toBeGreaterThan(0);
+
+    vi.unstubAllGlobals();
   });
 });

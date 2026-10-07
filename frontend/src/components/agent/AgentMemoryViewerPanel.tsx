@@ -32,12 +32,15 @@ const TABS: Array<{ key: 'identity' | MemoryEntryKind | 'sessions'; label: strin
  */
 export function AgentMemoryViewerPanel({
   open,
+  inline = false,
   busy,
   onClose,
   onRefreshPending,
   onReview,
 }: {
   open: boolean;
+  /** 内嵌模式：不套遮罩弹窗，直接铺进右侧常驻栏 */
+  inline?: boolean;
   busy: boolean;
   onClose: () => void;
   onRefreshPending: () => void;
@@ -51,7 +54,7 @@ export function AgentMemoryViewerPanel({
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
 
-  useBodyScrollLock();
+  useBodyScrollLock(open && !inline);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -90,16 +93,21 @@ export function AgentMemoryViewerPanel({
   const entryList = view && tab !== 'identity' && tab !== 'sessions' ? view.entries[tab] : [];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="flex max-h-[88vh] w-full max-w-3xl flex-col rounded-lg border border-border bg-card p-5 shadow-lg">
+    <div className={inline ? 'flex h-full min-h-0 flex-col' : 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4'}>
+      <div className={cn(
+        'flex flex-col border-border bg-card',
+        inline
+          ? 'h-full min-h-0 w-full rounded-none border-0 p-3'
+          : 'max-h-[88vh] w-full max-w-3xl rounded-lg border p-5 shadow-lg',
+      )}>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-base font-medium">记忆（本类目 · 只有它自己能看到）</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
+            {!inline && <h3 className="text-base font-medium">记忆（本类目 · 只有它自己能看到）</h3>}
+            <p className={cn('text-xs text-muted-foreground', !inline && 'mt-1')}>
               {view ? `规则 ${view.identityChars} 字符（上限 ${view.limits.identityLimit}）｜ 单条限长 ${view.limits.entryChars} 字符 ｜ 命中注入上限 ${view.limits.hitTotalChars} 字符` : '读取中…'}
             </p>
           </div>
-          <Button variant="ghost" size="sm" onClick={onClose}>关闭</Button>
+          {!inline && <Button variant="ghost" size="sm" onClick={onClose}>关闭</Button>}
         </div>
 
         {view?.review.due && (

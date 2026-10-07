@@ -297,6 +297,31 @@ describe('CDP 工具循环', () => {
     expect(collected.done?.text || '').toContain('参考图');
   });
 
+  it('目录里有图时，空参考图提案放行给提案卡自动勾选（不再误杀）', async () => {
+    const proposalArgs = {
+      action: 'generate',
+      prompt: '用参考图做一张主图',
+      referenced_image_ids: [],
+      reason: '模型漏填，卡片默认会带上会话里的参考图',
+    };
+    const mock = vi.fn().mockResolvedValue(
+      sseResponse(toolCallFrames('openai-chat-completions', 'propose_image_action', proposalArgs, 'call_fill')),
+    );
+    vi.stubGlobal('fetch', mock);
+    const { callbacks, collected } = makeCallbacks();
+
+    await streamAgentChat(baseInput('openai-chat-completions', {
+      cdp: true,
+      cdpExecutor: vi.fn(async () => '不应被调用'),
+      catalog: [{ imgId: 'img_1', description: '商品图' }],
+    }), callbacks).promise;
+
+    // 放行：提案交给提案卡，由卡片默认勾选本会话上传的参考图（而不是在这里丢弃）
+    expect(collected.done?.proposal?.referencedImageIds).toEqual([]);
+    expect(collected.done?.proposals || []).toHaveLength(1);
+    expect(collected.done?.text || '').not.toContain('已拦下');
+  });
+
   it('模型调用 propose_image_action 时直接产出提案，不执行 CDP 工具', async () => {
     const executor = vi.fn(async () => '不应被调用');
     const proposalArgs = {
@@ -1254,11 +1279,12 @@ describe('多图分别处理兜底拆分', () => {
     expect(proposals).toHaveLength(1);
   });
 
-  it('铁律生效后：空参考图的提案会被拦下，连兜底拆分也不给它补', async () => {
+  it('目录里有图时：空参考图提案放行给卡片（不再丢弃），兜底拆分仍不为它凭空补图', async () => {
     const proposals = await runSeparateCase('把图1和图2都改成1:1', [
       { ...editProposal([]), action: 'generate', referenced_image_ids: [] },
     ]);
-    // 以前这里期望 1 条（不凭空发明拆分）；现在空参考图直接不合规 → 0 条
-    expect(proposals).toHaveLength(0);
+    // 空参考图不再在流式层被丢弃（目录里有图 → 交给提案卡默认勾选参考图）；
+    // 但兜底拆分不会凭空把 generate 补成「每图一条」，所以仍是 1 条。
+    expect(proposals).toHaveLength(1);
   });
 });

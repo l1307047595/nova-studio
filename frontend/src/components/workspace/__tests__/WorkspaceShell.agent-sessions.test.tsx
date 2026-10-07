@@ -151,7 +151,7 @@ describe('WorkspaceShell Agent sessions', () => {
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'session:design' })).toBeInTheDocument());
     expect(calls).toEqual(['context:design', 'active:design']);
-    expect(mounts.count).toBe(2);
+    await waitFor(() => expect(mounts.count).toBe(2));
     expect(mounts.lastSessionId).toBe('design');
   });
 });

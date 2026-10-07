@@ -147,6 +147,8 @@ export function AgentChatWorkspace({
   const [memoryPendingBusyId, setMemoryPendingBusyId] = useState('');
   // 记忆查看/编辑面板
   const [memoryViewerOpen, setMemoryViewerOpen] = useState(false);
+  // 右侧常驻记忆栏（xl 以上）：'pending' | 'memory' | null（收起）。窄屏仍走弹窗
+  const [memoryRail, setMemoryRail] = useState<'pending' | 'memory' | null>('pending');
   const showToast = useCallback((message: string, type: ToastData['type']) => {
     const id = `agent-toast-${++toastIdRef.current}`;
     setToasts(prev => [...prev, { id, message, type }]);
@@ -625,11 +627,66 @@ export function AgentChatWorkspace({
     && lastMessageRole !== 'context-divider';
   const canClearContext = !busy && hasContextToClear;
 
+  // 宽屏用右栏，窄屏退回弹窗 —— 同一份回调，避免两处逻辑漂移
+  const railUsable = () => typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(min-width: 1280px)').matches;
+  const openMemoryPending = () => {
+    if (railUsable()) setMemoryRail('pending');
+    else setMemoryPendingOpen(true);
+  };
+  const openMemoryViewer = () => {
+    if (railUsable()) setMemoryRail('memory');
+    else setMemoryViewerOpen(true);
+  };
+  const approvePendingDraft = (id: string, override: { kind: MemoryNoteKind | 'session'; text: string }) => {
+    setMemoryPendingBusyId(id);
+    void agent.approveDraft(id, override).then(result => {
+      setMemoryPendingBusyId('');
+      showToast(result.ok ? '已写入本类目记忆' : (result.error || '写入失败'), result.ok ? 'success' : 'error');
+    });
+  };
+  const rejectPendingDraft = (id: string) => {
+    setMemoryPendingBusyId(id);
+    void agent.rejectDraft(id).then(result => {
+      setMemoryPendingBusyId('');
+      showToast(result.ok ? '已驳回，以后不再提这条' : (result.error || '驳回失败'), result.ok ? 'success' : 'error');
+    });
+  };
+  const approveAllPendingDrafts = () => {
+    void agent.approveAllDrafts().then(result => {
+      showToast(result.ok ? `已写入 ${result.approved} 条` : (result.error || '批量写入失败'), result.ok ? 'success' : 'error');
+    });
+  };
+  const reviewMemory = () => {
+    void agent.runMemoryReview().then(result => {
+      showToast(
+        result.ok ? `已起草 ${result.count} 条规则建议，去「待确认」里审` : (result.error || '复盘失败'),
+        result.ok ? 'success' : 'error',
+      );
+      if (result.ok) openMemoryPending();
+    });
+  };
+
+  // 宽屏（≥1280px）右栏在窗口收窄后会整块隐藏；此时把内容交回弹窗，避免「记忆栏消失」。
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const media = window.matchMedia('(min-width: 1280px)');
+    const handleChange = (event: MediaQueryListEvent) => {
+      if (event.matches || !memoryRail) return;
+      if (memoryRail === 'pending') setMemoryPendingOpen(true);
+      else setMemoryViewerOpen(true);
+      setMemoryRail(null);
+    };
+    media.addEventListener('change', handleChange);
+    return () => media.removeEventListener('change', handleChange);
+  }, [memoryRail]);
+
   return (
     <div
       ref={containerRef}
       className={cn(
-        'relative flex h-full min-w-0 flex-1 min-h-[400px] flex-col rounded-2xl border border-border bg-card/60 overflow-hidden',
+        'relative flex h-full min-w-0 flex-1 min-h-[400px] flex-row rounded-2xl border border-border bg-card/60 overflow-hidden',
         wideMode && 'h-full min-h-0 w-full'
       )}
       onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
@@ -640,6 +697,8 @@ export function AgentChatWorkspace({
         void handleFiles(e.dataTransfer.files);
       }}
     >
+      {/* 左：会话主列 */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-border px-4 py-2.5">
         <div className="flex shrink-0 items-center gap-2 text-sm font-medium">
           {onToggleSidebar && (
@@ -689,7 +748,7 @@ export function AgentChatWorkspace({
 
       <div
         ref={scrollRef}
-        className="min-w-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-4 py-4"
+        className="min-w-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto px-5 py-6"
       >
         {agent.messages.length === 0 && !agent.streamingText && (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-muted-foreground">
@@ -710,7 +769,7 @@ export function AgentChatWorkspace({
               void agent.draftCaseFromImage(img).then(result => {
                 if (result.ok) {
                   showToast('草稿已生成，去「待确认」里审', 'success');
-                  setMemoryPendingOpen(true);
+                  openMemoryPending();
                 } else {
                   showToast(result.error || '起草失败', 'error');
                 }
@@ -753,7 +812,7 @@ export function AgentChatWorkspace({
               )}
               {agent.streamingText && (
                 <div
-                  className="md-streaming rounded-2xl rounded-tl-sm bg-muted px-3.5 py-2.5 text-sm"
+                  className="md-streaming px-0.5 py-1 text-sm"
                   onClick={(e) => {
                     if (!handleMarkdownCodeCopyButtonClick(e.target)) return;
                     e.preventDefault();
@@ -777,6 +836,7 @@ export function AgentChatWorkspace({
             imageModel={intentRecognition ? agent.imageModel : userModel}
             hideControls={!intentRecognition}
             failed={Boolean(agent.error)}
+            queuedCount={agent.proposalQueue.length}
             onModelChange={agent.setImageModel}
             onUploadReferences={handleUploadReferences}
             onApprove={(prompt, ids, _model, _params, promptEn) => {
@@ -785,6 +845,23 @@ export function AgentChatWorkspace({
               } else {
                 const layout = sanitizeLayoutForModel(userModel, userOutputSize, userAspectRatio);
                 void agent.approveProposal(prompt, ids, userModel, {
+                  outputSize: layout.outputSize,
+                  customSize: userCustomSize,
+                  aspectRatio: layout.aspectRatio,
+                  temperature: userTemperature,
+                  gptImageQuality: userAdvancedParams.quality,
+                  gptImageStyle: userAdvancedParams.style,
+                  gptImageBackground: userAdvancedParams.background,
+                  parallelCount: userParallelCount,
+                }, promptEn);
+              }
+            }}
+            onApproveAll={(prompt, ids, _model, _params, promptEn) => {
+              if (intentRecognition) {
+                agent.approveAllProposals(prompt, ids, _model, _params, promptEn);
+              } else {
+                const layout = sanitizeLayoutForModel(userModel, userOutputSize, userAspectRatio);
+                agent.approveAllProposals(prompt, ids, userModel, {
                   outputSize: layout.outputSize,
                   customSize: userCustomSize,
                   aspectRatio: layout.aspectRatio,
@@ -948,6 +1025,7 @@ export function AgentChatWorkspace({
 
         {/* 第二行：上传、联网、意图识别 + 参数控件 */}
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <span className="hidden shrink-0 text-[10px] font-medium tracking-wide text-muted-foreground/60 lg:inline">内容</span>
           {/* 上传图片 */}
           <Button
             variant="ghost"
@@ -999,6 +1077,8 @@ export function AgentChatWorkspace({
             <Save className="h-4 w-4" />
             <span className="text-xs">存提示词</span>
           </Button>
+          <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-border/60 lg:inline-block" />
+          <span className="hidden shrink-0 text-[10px] font-medium tracking-wide text-muted-foreground/60 lg:inline">记忆</span>
           <Button
             variant="ghost"
             size="sm"
@@ -1011,26 +1091,31 @@ export function AgentChatWorkspace({
             <span className="text-xs">记一条</span>
           </Button>
           <Button
-            variant={(agent.pendingDrafts?.length || 0) > 0 ? 'default' : 'ghost'}
+            variant="ghost"
             size="sm"
             className={cn(
               'shrink-0 gap-1.5',
-              (agent.pendingDrafts?.length || 0) > 0 ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'text-muted-foreground'
+              /* 「待你决策」用品牌橙的浅底，不抢主按钮的黑 */
+              (agent.pendingDrafts?.length || 0) > 0
+                ? 'bg-[var(--brand-soft)] text-[var(--brand-ink)] hover:bg-[var(--brand-soft)] ring-1 ring-inset ring-[var(--brand)]/30'
+                : 'text-muted-foreground'
             )}
-            onClick={() => { setMemoryPendingOpen(true); void agent.refreshPendingDrafts(); }}
+            onClick={() => { openMemoryPending(); void agent.refreshPendingDrafts(); }}
             title="AI 起草的记忆草稿：你确认后才写进记忆"
           >
             <ListChecks className="h-4 w-4" />
             <span className="text-xs">待确认{(agent.pendingDrafts?.length || 0) > 0 ? ` ${agent.pendingDrafts?.length}` : ''}</span>
           </Button>
           <Button
-            variant={agent.memoryReview?.due ? 'default' : 'ghost'}
+            variant="ghost"
             size="sm"
             className={cn(
               'shrink-0 gap-1.5',
-              agent.memoryReview?.due ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'text-muted-foreground'
+              agent.memoryReview?.due
+                ? 'bg-[var(--brand-soft)] text-[var(--brand-ink)] hover:bg-[var(--brand-soft)] ring-1 ring-inset ring-[var(--brand)]/30'
+                : 'text-muted-foreground'
             )}
-            onClick={() => { setMemoryViewerOpen(true); void agent.refreshPendingDrafts(); }}
+            onClick={() => { openMemoryViewer(); void agent.refreshPendingDrafts(); }}
             title={agent.memoryReview?.due
               ? `该复盘了：上次复盘后新增 ${agent.memoryReview.count} 条`
               : '查看/编辑本类目的记忆'}
@@ -1039,6 +1124,8 @@ export function AgentChatWorkspace({
             <span className="text-xs">记忆{agent.memoryReview?.due ? ' · 该复盘' : ''}</span>
           </Button>
 
+          <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-border/60 lg:inline-block" />
+          <span className="hidden shrink-0 text-[10px] font-medium tracking-wide text-muted-foreground/60 lg:inline">能力</span>
           {agent.agentSupportsWebSearch && (
             <Button
               variant={agent.webSearchEnabled ? 'default' : 'ghost'}
@@ -1098,6 +1185,7 @@ export function AgentChatWorkspace({
             <span className="text-xs">自检</span>
           </Button>
 
+          <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-border/60 lg:inline-block" />
           {/* 意图识别开关 */}
           <Button
             variant="outline"
@@ -1303,21 +1391,71 @@ export function AgentChatWorkspace({
           )}
         </div>
       </div>
+      </div>
+
+      {/* 右：常驻记忆栏（xl 以上；窄屏自动隐藏，走弹窗） */}
+      {memoryRail && (
+        <aside className="hidden w-[330px] shrink-0 flex-col border-l border-border bg-muted/20 xl:flex">
+          <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
+            {([['pending', '待确认'], ['memory', '记忆']] as const).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setMemoryRail(key)}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-colors',
+                  memoryRail === key ? 'bg-background font-medium text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {label}
+                {key === 'pending' && (agent.pendingDrafts?.length ?? 0) > 0 && (
+                  <span className="rounded-full bg-[var(--brand-soft)] px-1.5 text-[10px] font-medium text-[var(--brand-ink)]">
+                    {agent.pendingDrafts.length}
+                  </span>
+                )}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setMemoryRail(null)}
+              className="ml-auto flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              title="收起记忆栏"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            {memoryRail === 'pending' ? (
+              <AgentMemoryPendingPanel
+                open
+                inline
+                drafts={agent.pendingDrafts ?? []}
+                busyId={memoryPendingBusyId}
+                onClose={() => setMemoryRail(null)}
+                onApprove={approvePendingDraft}
+                onReject={rejectPendingDraft}
+                onApproveAll={approveAllPendingDrafts}
+              />
+            ) : (
+              <AgentMemoryViewerPanel
+                open
+                inline
+                busy={agent.memoryReviewBusy}
+                onClose={() => setMemoryRail(null)}
+                onRefreshPending={() => { void agent.refreshPendingDrafts(); }}
+                onReview={reviewMemory}
+              />
+            )}
+          </div>
+        </aside>
+      )}
 
       <AgentMemoryViewerPanel
         open={memoryViewerOpen}
         busy={agent.memoryReviewBusy}
         onClose={() => setMemoryViewerOpen(false)}
         onRefreshPending={() => { void agent.refreshPendingDrafts(); }}
-        onReview={() => {
-          void agent.runMemoryReview().then(result => {
-            showToast(
-              result.ok ? `已起草 ${result.count} 条规则建议，去「待确认」里审` : (result.error || '复盘失败'),
-              result.ok ? 'success' : 'error',
-            );
-            if (result.ok) setMemoryPendingOpen(true);
-          });
-        }}
+        onReview={reviewMemory}
       />
 
       <AgentMemoryPendingPanel
@@ -1325,25 +1463,9 @@ export function AgentChatWorkspace({
         drafts={agent.pendingDrafts}
         busyId={memoryPendingBusyId}
         onClose={() => setMemoryPendingOpen(false)}
-        onApprove={(id: string, override: { kind: MemoryNoteKind | 'session'; text: string }) => {
-          setMemoryPendingBusyId(id);
-          void agent.approveDraft(id, override).then(result => {
-            setMemoryPendingBusyId('');
-            showToast(result.ok ? '已写入本类目记忆' : (result.error || '写入失败'), result.ok ? 'success' : 'error');
-          });
-        }}
-        onReject={(id: string) => {
-          setMemoryPendingBusyId(id);
-          void agent.rejectDraft(id).then(result => {
-            setMemoryPendingBusyId('');
-            showToast(result.ok ? '已驳回，以后不再提这条' : (result.error || '驳回失败'), result.ok ? 'success' : 'error');
-          });
-        }}
-        onApproveAll={() => {
-          void agent.approveAllDrafts().then(result => {
-            showToast(result.ok ? `已写入 ${result.approved} 条` : (result.error || '批量写入失败'), result.ok ? 'success' : 'error');
-          });
-        }}
+        onApprove={approvePendingDraft}
+        onReject={rejectPendingDraft}
+        onApproveAll={approveAllPendingDrafts}
       />
 
       <AgentMemoryNoteDialog

@@ -39,13 +39,14 @@ export default function RootLayout({
               (function() {
                 try {
                   const theme = window.localStorage.getItem('theme');
+                  // 默认浅色（产品定稿）：未存过偏好时显式设 light，不跟随系统
                   if (theme === 'dark' || theme === 'light') {
                     document.documentElement.setAttribute('data-theme', theme);
                   } else {
-                    document.documentElement.removeAttribute('data-theme');
+                    document.documentElement.setAttribute('data-theme', 'light');
                   }
                 } catch {
-                  document.documentElement.removeAttribute('data-theme');
+                  document.documentElement.setAttribute('data-theme', 'light');
                 }
               })();
             `,

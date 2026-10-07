@@ -178,7 +178,11 @@ function isOpencodeZenBaseUrl(baseUrl) {
     return false;
   }
 }
-const STATIC_DIR = path.join(__dirname, '..', 'frontend', 'out');
+// 静态产物目录：默认 frontend/out，可用 NOVA_FRONTEND_DIR 指向其它构建产物
+// （用途：前端重构期间 out/ 被占用时，可在别处构建再指过来）
+const STATIC_DIR = process.env.NOVA_FRONTEND_DIR
+  ? path.resolve(process.env.NOVA_FRONTEND_DIR)
+  : path.join(__dirname, '..', 'frontend', 'out');
 const IMAGE_DIR = process.env.NOVA_IMAGE_DIR || path.join(__dirname, 'nova-images');
 // CDP 功能为启动级开关：默认关闭，显式置 true 时才提供 /api/nova/cdp/*。
 const CDP_ENABLED = String(process.env.NOVA_CDP_ENABLED ?? 'false').toLowerCase() === 'true';

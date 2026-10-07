@@ -27,14 +27,15 @@ function isTheme(value: string | null): value is Theme {
 function applyTheme(newTheme: Theme) {
   const root = document.documentElement;
   if (newTheme === 'system') {
-    root.removeAttribute('data-theme');
+    // 产品定稿默认浅色：跟随系统时也显式回落浅色，避免暗系统下变黑
+    root.setAttribute('data-theme', 'light');
   } else {
     root.setAttribute('data-theme', newTheme);
   }
 }
 
 export function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>('system');
+  const [theme, setTheme] = useState<Theme>('light');
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {

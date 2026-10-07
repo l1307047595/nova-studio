@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Nova Studio · Agent 对话页 · 样品 v1</title>
+<style>
+  /* ── 设计不变量 ─────────────────────────────────────────────
+     范围：Agent 对话页首屏（不含其它工作台）· 桌面优先，窄屏降级为单列
+     主角：① 提案卡与图片缩略（工作内容）② 待确认队列（控制权交接）
+     强调色：橙 #FE8210，只用于"需要你决策"的地方，占比 <5%
+     对比度：正文 ≥ 12:1，次要文字 ≥ 7:1（投影/长时间阅读安全）
+  ──────────────────────────────────────────────────────────── */
+  :root {
+    --bg: #0B0E13;
+    --panel: #12161E;
+    --panel-2: #171C26;
+    --card: #1A202B;
+    --line: rgba(255,255,255,.07);
+    --line-2: rgba(255,255,255,.12);
+    --txt: #E9EEF7;
+    --mut: #C3CCDB;
+    --dim: #8C97A8;
+    --acc: #FE8210;
+    --acc-soft: rgba(254,130,16,.14);
+    --ok: #4ECB8E;
+    --info: #6AA8FF;
+    --r: 14px;
+    --shadow: 0 10px 30px rgba(0,0,0,.45);
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei",
+            "PingFang SC", "Hiragino Sans GB", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--txt);
+    font: 14px/1.6 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+
+  .app {
+    display: flex;
+    min-height: 100vh;
+    min-height: 100dvh;
+    background:
+      radial-gradient(1200px 600px at 70% -10%, rgba(254,130,16,.05), transparent 60%),
+      var(--bg);
+  }
+
+  /* ── 左：图标栏 ── */
+  .rail {
+    width: 76px;
+    flex: 0 0 76px;
+    border-right: 1px solid var(--line);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 14px 0;
+    background: rgba(255,255,255,.012);
+  }
+  .logo {
+    width: 40px; height: 40px; border-radius: 11px;
+    background: linear-gradient(150deg, #FE8210, #F2543C 60%, #B23A6E);
+    display: grid; place-items: center;
+    font-weight: 800; font-size: 15px; color: #1A0D02;
+    letter-spacing: .5px; margin-bottom: 10px;
+  }
+  .nav {
+    width: 52px; height: 46px; border-radius: 12px;
+    display: grid; place-items: center; gap: 3px;
+    color: var(--dim); position: relative;
+  }
+  .nav svg { display: block; }
+  .nav span { font-size: 10px; letter-spacing: .2px; }
+  .nav:hover { color: var(--mut); background: rgba(255,255,255,.04); }
+  .nav.on { color: var(--txt); background: var(--acc-soft); }
+  .nav.on::before {
+    content: ""; position: absolute; left: -14px; top: 9px; bottom: 9px;
+    width: 3px; border-radius: 3px; background: var(--acc);
+  }
+  .nav.on span { color: var(--acc); }
+
+  /* ── 中：对话列 ── */
+  .chat { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+
+  .top {
+    display: flex; align-items: center; gap: 14px;
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(255,255,255,.02), transparent);
+    flex-wrap: wrap;
+  }
+  .cat { display: flex; align-items: center; gap: 6px; }
+  .cat > b { font-weight: 500; font-size: 12px; color: var(--dim); margin-right: 2px; }
+  .pill {
+    padding: 6px 13px; border-radius: 999px; font-size: 13px;
+    color: var(--mut); border: 1px solid var(--line-2);
+    background: rgba(255,255,255,.02);
+  }
+  .pill:hover { color: var(--txt); border-color: rgba(254,130,16,.4); }
+  .pill.on {
+    color: #1A0D02; background: var(--acc); border-color: var(--acc); font-weight: 600;
+  }
+  .pill.add { color: var(--dim); border-style: dashed; }
+
+  .top .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .session {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-radius: 10px;
+    border: 1px solid var(--line-2); background: rgba(255,255,255,.02);
+    color: var(--mut); font-size: 13px;
+  }
+  .session i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); }
+
+  .mem-btn {
+    position: relative; display: flex; align-items: center; gap: 8px;
+    padding: 7px 13px; border-radius: 10px; font-size: 13px;
+    border: 1px solid rgba(254,130,16,.45); background: var(--acc-soft); color: var(--txt);
+  }
+  .mem-btn:hover { background: rgba(254,130,16,.22); }
+  .badge {
+    min-width: 19px; height: 19px; padding: 0 5px; border-radius: 999px;
+    background: var(--acc); color: #1A0D02; font-size: 11px; font-weight: 700;
+    display: grid; place-items: center;
+  }
+  .badge.zero { background: rgba(255,255,255,.14); color: var(--dim); }
+
+  .stream {
+    flex: 1 1 auto; overflow: auto; padding: 22px 24px 8px;
+    display: flex; flex-direction: column; gap: 16px;
+    scrollbar-width: thin;
+  }
+  .sysline {
+    align-self: center; font-size: 12px; color: var(--dim);
+    border: 1px dashed var(--line-2); border-radius: 999px; padding: 4px 14px;
+    background: rgba(255,255,255,.02);
+  }
+  .sysline b { color: var(--mut); font-weight: 500; }
+
+  .msg { display: flex; gap: 12px; max-width: 780px; }
+  .msg .av {
+    width: 30px; height: 30px; border-radius: 9px; flex: 0 0 30px;
+    display: grid; place-items: center; font-size: 12px; font-weight: 700;
+  }
+  .msg.me { align-self: flex-end; flex-direction: row-reverse; }
+  .msg.me .av { background: #2A3242; color: var(--mut); }
+  .msg.bot .av { background: linear-gradient(150deg, #FE8210, #F2543C); color: #1A0D02; }
+  .bubble { min-width: 0; }
+  .bubble .who { font-size: 12px; color: var(--dim); margin-bottom: 5px; }
+  .bubble .body {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: var(--r); padding: 12px 14px;
+  }
+  .msg.me .bubble .body { background: var(--panel-2); }
+  .bubble .body p { margin: 0; }
+  .bubble .body p + p { margin-top: 7px; }
+
+  .thumbs-in { display: flex; gap: 8px; margin-top: 10px; }
+  .thumb {
+    width: 74px; height: 74px; border-radius: 10px; overflow: hidden;
+    border: 1px solid var(--line-2); position: relative;
+  }
+  .thumb.sq {
+    width: auto; flex: 1 1 0; min-width: 84px; aspect-ratio: 1/1; height: auto;
+  }
+  /* 无外部图片：用极简 SVG 占位商品图 */
+  .ph { width: 100%; height: 100%; display: block; }
+  .thumb .tag {
+    position: absolute; left: 6px; bottom: 6px;
+    font-size: 10px; padding: 2px 6px; border-radius: 5px;
+    background: rgba(6,8,12,.72); color: var(--mut); backdrop-filter: blur(2px);
+  }
+  .thumb .tag.done { color: #BFF3D7; }
+  .thumb.loading::after {
+    content: ""; position: absolute; inset: 0;
+    background: linear-gradient(100deg, transparent 20%, rgba(254,130,16,.22) 50%, transparent 80%);
+    animation: sweep 1.5s linear infinite;
+  }
+  @keyframes sweep { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+
+  /* 提案卡：页面主角之一 */
+  .proposal {
+    margin-top: 12px; border-radius: var(--r); overflow: hidden;
+    border: 1px solid rgba(254,130,16,.35); background: var(--card);
+    box-shadow: var(--shadow);
+  }
+  .proposal > header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+    background: linear-gradient(90deg, var(--acc-soft), transparent 45%);
+  }
+  .proposal > header .k { font-size: 12px; color: var(--acc); font-weight: 600; }
+  .proposal > header .t { font-size: 13px; color: var(--mut); }
+  .proposal > header .ref {
+    margin-left: auto; font-size: 11px; color: var(--dim);
+    border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 7px;
+  }
+  .proposal .pad { padding: 13px 14px; }
+  .draft {
+    border: 1px solid var(--line-2); border-radius: 10px; padding: 11px 12px;
+    background: rgba(0,0,0,.22); font-size: 13px; color: var(--txt);
+    outline: none;
+  }
+  .draft:hover { border-color: rgba(254,130,16,.45); }
+  .draft[contenteditable]:focus-within { border-color: var(--acc); }
+  .draft .lbl { font-size: 11px; color: var(--dim); display: block; margin-bottom: 5px; }
+  .fold {
+    margin-top: 9px; display: flex; align-items: center; gap: 7px;
+    font-size: 12px; color: var(--mut);
+  }
+  .fold .caret { transition: transform .18s; display: inline-block; color: var(--dim); }
+  .fold.open .caret { transform: rotate(90deg); }
+  .en {
+    display: none; margin-top: 8px; padding: 10px 12px; border-radius: 10px;
+    background: rgba(106,168,255,.08); border: 1px solid rgba(106,168,255,.28);
+    font: 12px/1.65 ui-monospace, "Cascadia Code", Consolas, monospace; color: #CFE0FF;
+    white-space: pre-wrap;
+  }
+  .fold.open + .en { display: block; }
+  .acts { display: flex; align-items: center; gap: 9px; margin-top: 12px; }
+  .btn {
+    padding: 8px 15px; border-radius: 10px; font-size: 13px;
+    border: 1px solid var(--line-2); color: var(--mut);
+  }
+  .btn:hover { color: var(--txt); border-color: var(--line-2); background: rgba(255,255,255,.05); }
+  .btn.primary {
+    background: var(--acc); border-color: var(--acc); color: #1A0D02; font-weight: 650;
+  }
+  .btn.primary:hover { filter: brightness(1.07); background: var(--acc); color: #1A0D02; }
+  .acts .hint { margin-left: auto; font-size: 11px; color: var(--dim); }
+
+  /* ── 底部输入区 ── */
+  .composer { padding: 10px 24px 18px; }
+  .inject {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 8px 12px; margin-bottom: 9px;
+    border: 1px dashed var(--line-2); border-radius: 11px;
+    background: rgba(255,255,255,.015);
+    font-size: 12px; color: var(--dim);
+    transition: border-color .18s, background .18s;
+  }
+  .inject.live { border-color: rgba(254,130,16,.5); background: var(--acc-soft); }
+  .inject.live .hint2 { color: var(--acc); }
+  .chip {
+    font-size: 11px; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--line-2); color: var(--mut);
+    background: rgba(255,255,255,.03);
+  }
+  .chip.hit { border-color: rgba(254,130,16,.45); color: #FFD9AE; background: rgba(254,130,16,.1); }
+  .typing {
+    display: flex; align-items: flex-end; gap: 10px;
+    border: 1px solid var(--line-2); border-radius: 13px; padding: 10px 12px;
+    background: var(--panel);
+  }
+  .typing:focus-within { border-color: rgba(254,130,16,.55); box-shadow: 0 0 0 3px rgba(254,130,16,.08); }
+  .typing .box { flex: 1 1 auto; min-height: 22px; outline: none; font-size: 14px; }
+  .typing .box:empty::before { content: attr(data-ph); color: var(--dim); }
+  .icon-btn {
+    width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+    color: var(--dim); border: 1px solid transparent;
+  }
+  .icon-btn:hover { color: var(--txt); background: rgba(255,255,255,.05); border-color: var(--line-2); }
+  .send {
+    width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
+    background: var(--acc); color: #1A0D02; font-weight: 700; font-size: 15px;
+  }
+  .send:hover { filter: brightness(1.08); }
+
+  /* ── 右：记忆 / 待确认队列 ── */
+  .mem {
+    width: 372px; flex: 0 0 372px;
+    border-left: 1px solid var(--line);
+    background: linear-gradient(180deg, rgba(255,255,255,.018), transparent 30%);
+    display: flex; flex-direction: column;
+  }
+  .mem > header { padding: 14px 16px 12px; border-bottom: 1px solid var(--line); }
+  .mem .h1 { display: flex; align-items: center; gap: 9px; }
+  .mem .h1 h2 { margin: 0; font-size: 15px; font-weight: 650; }
+  .mem .h1 .n {
+    font-size: 11px; padding: 2px 8px; border-radius: 999px;
+    background: var(--acc); color: #1A0D02; font-weight: 700;
+  }
+  .mem .sub { margin-top: 5px; font-size: 12px; color: var(--dim); }
+  .mem .meta { display: flex; gap: 7px; margin-top: 10px; flex-wrap: wrap; }
+  .tabs { display: flex; gap: 4px; margin-top: 12px; flex-wrap: wrap; }
+  .tab {
+    font-size: 12px; padding: 5px 10px; border-radius: 8px; color: var(--dim);
+    border: 1px solid transparent;
+  }
+  .tab:hover { color: var(--mut); background: rgba(255,255,255,.04); }
+  .tab.on { color: var(--txt); background: var(--panel-2); border-color: var(--line-2); }
+
+  .q { flex: 1 1 auto; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 11px; }
+  .q .empty { color: var(--dim); font-size: 13px; text-align: center; padding: 30px 0; }
+
+  /* 待确认卡：页面主角之二 —— 悬停抬起、橙色描边；写入时扫描归档 */
+  .draftcard {
+    position: relative; overflow: hidden;
+    border: 1px solid var(--line); border-radius: 13px;
+    background: var(--card); padding: 12px 13px 11px;
+    transition: transform .2s cubic-bezier(.2,.7,.3,1), border-color .2s, box-shadow .2s;
+  }
+  .draftcard:hover {
+    transform: translateY(-2px); border-color: rgba(254,130,16,.5);
+    box-shadow: 0 12px 26px rgba(0,0,0,.45);
+  }
+  .draftcard .kind {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 11px; padding: 3px 9px; border-radius: 999px;
+    border: 1px solid var(--line-2); color: var(--mut);
+  }
+  .draftcard .kind.fix { color: #FFD9AE; border-color: rgba(254,130,16,.45); background: rgba(254,130,16,.1); }
+  .draftcard .kind.lib { color: #CFE0FF; border-color: rgba(106,168,255,.4); background: rgba(106,168,255,.1); }
+  .draftcard .kind.rule { color: #C6F0DC; border-color: rgba(78,203,142,.4); background: rgba(78,203,142,.1); }
+  .draftcard .txt { margin: 9px 0 8px; font-size: 13px; color: var(--txt); }
+  .draftcard .tags { display: flex; gap: 6px; flex-wrap: wrap; }
+  .draftcard .tagx {
+    font-size: 11px; color: var(--acc); background: var(--acc-soft);
+    border-radius: 6px; padding: 2px 7px;
+  }
+  .draftcard .src { margin-top: 9px; font-size: 11px; color: var(--dim); display: flex; gap: 8px; }
+  .draftcard .row {
+    display: flex; gap: 8px; margin-top: 11px;
+    max-height: 0; opacity: 0; overflow: hidden;
+    transition: max-height .22s ease, opacity .18s ease;
+  }
+  .draftcard:hover .row, .draftcard:focus-within .row { max-height: 46px; opacity: 1; }
+  .mini {
+    font-size: 12px; padding: 6px 12px; border-radius: 9px;
+    border: 1px solid var(--line-2); color: var(--mut);
+  }
+  .mini.go { background: var(--acc); border-color: var(--acc); color: #1A0D02; font-weight: 650; }
+  .mini.no:hover { color: #FFB4AE; border-color: rgba(242,84,60,.55); }
+  .mini.go:hover { filter: brightness(1.07); }
+  .scan {
+    position: absolute; inset: 0; pointer-events: none; opacity: 0;
+    background: linear-gradient(100deg, transparent 35%, rgba(254,130,16,.55) 50%, transparent 65%);
+  }
+  .draftcard.scanning .scan { opacity: 1; animation: sweep .55s ease-out 1; }
+  .draftcard.gone { animation: out .32s ease forwards; }
+  @keyframes out {
+    to { transform: translateX(28px) scale(.97); opacity: 0; }
+  }
+
+  .mem > footer {
+    padding: 12px 16px 15px; border-top: 1px solid var(--line);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .sw { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dim); }
+  .sw .dot {
+    width: 32px; height: 18px; border-radius: 999px; background: rgba(255,255,255,.12);
+    position: relative; transition: background .2s;
+  }
+  .sw .dot::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+    border-radius: 50%; background: #97A2B4; transition: transform .2s, background .2s;
+  }
+  .sw.on .dot { background: rgba(254,130,16,.5); }
+  .sw.on .dot::after { transform: translateX(14px); background: var(--acc); }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 14px);
+    padding: 10px 16px; border-radius: 11px; font-size: 13px;
+    background: #232B38; border: 1px solid var(--line-2); color: var(--txt);
+    box-shadow: var(--shadow); opacity: 0; pointer-events: none;
+    transition: opacity .2s, transform .2s;
+  }
+  .toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+  @media (max-width: 1080px) {
+    .app { flex-wrap: wrap; }
+    .mem { width: 100%; flex: 1 1 100%; border-left: 0; border-top: 1px solid var(--line); }
+    .stream { max-height: 62vh; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- 左：图标栏 -->
+  <aside class="rail">
+    <div class="logo">N</div>
+    <button class="nav on" title="Agent 对话">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5h16v11H8l-4 4z"/></svg>
+      <span>Agent</span>
+    </button>
+    <button class="nav" title="生图工作台">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 15l5-4 4 3 3-3 6 5"/><circle cx="9" cy="9.5" r="1.4"/></svg>
+      <span>生图</span>
+    </button>
+    <button class="nav" title="我的素材">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="4" width="7" height="7" rx="1.5"/><rect x="14" y="4" width="7" height="7" rx="1.5"/><rect x="3" y="15" width="7" height="7" rx="1.5"/><rect x="14" y="15" width="7" height="7" rx="1.5"/></svg>
+      <span>素材</span>
+    </button>
+    <button class="nav" title="提示词广场">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3l2.4 5.3 5.6.6-4.2 3.9 1.2 5.6L12 15.7 6.9 18.4 8.1 12.8 3.9 8.9l5.6-.6z"/></svg>
+      <span>广场</span>
+    </button>
+    <button class="nav" title="设置" style="margin-top:auto">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2 2 2 0 1 1-4 0 1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 4.6 15a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 11 4.6a2 2 0 1 1 4 0 1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 19.4 11a2 2 0 1 1 0 4z"/></svg>
+      <span>设置</span>
+    </button>
+  </aside>
+
+  <!-- 中：对话列 -->
+  <main class="chat">
+    <header class="top">
+      <div class="cat">
+        <b>工作类目</b>
+        <button class="pill on" data-cat="捏捏乐">捏捏乐</button>
+        <button class="pill" data-cat="美妆">美妆</button>
+        <button class="pill" data-cat="通用">通用</button>
+        <button class="pill add">＋ 新建</button>
+      </div>
+      <div class="right">
+        <div class="session"><i></i> 榴莲套装 · 今天 12:31</div>
+        <button class="mem-btn" id="memBtn">
+          记忆 <span class="badge" id="badge">3</span>
+        </button>
+      </div>
+    </header>
+
+    <section class="stream" id="stream">
+      <div class="sysline">已切到工作类目：<b id="sysCat">捏捏乐</b> · 已注入记忆：规则 8.4k 字符 + 命中 2 条</div>
+
+      <div class="msg me">
+        <div class="av">我</div>
+        <div class="bubble">
+          <div class="who">我 · 12:31</div>
+          <div class="body">
+            <p>照着这张图出一组套图，主图强调三件套。</p>
+            <div class="thumbs-in">
+              <div class="thumb">
+                <svg class="ph" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  <defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0" stop-color="#3A2A1E"/><stop offset="1" stop-color="#1C1611"/>
+                  </linearGradient></defs>
+                  <rect width="100" height="100" fill="url(#g1)"/>
+                  <ellipse cx="34" cy="58" rx="15" ry="12" fill="#D9A24A"/>
+                  <ellipse cx="59" cy="52" rx="13" ry="11" fill="#E4C489"/>
+                  <ellipse cx="50" cy="70" rx="12" ry="10" fill="#C98B3E"/>
+                  <text x="50" y="22" font-size="8" fill="#F0D9AE" text-anchor="middle">SUGAR FREE</text>
+                </svg>
+                <span class="tag">参考图 img_1</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="msg bot">
+        <div class="av">N</div>
+        <div class="bubble">
+          <div class="who">Agent · 12:31</div>
+          <div class="body">
+            <p>已读图：三件套（榴莲造型 + 橙黄杯 + 斑点圆球），哑光软胶、无印刷文字、主题元素为食品造型。</p>
+            <p>本单主张：<b>「三件成套，一手都捏得住」</b>——视觉机制用对称陈列 + 三件同框。</p>
+
+            <!-- 提案卡（主角一） -->
+            <div class="proposal">
+              <header>
+                <span class="k">提案 1 / 4</span>
+                <span class="t">主图 · 1:1</span>
+                <span class="ref">参考图 img_1</span>
+              </header>
+              <div class="pad">
+                <div class="draft" contenteditable="true" spellcheck="false">
+                  <span class="lbl">中文稿（可直接改；改过就以你的版本为准）</span>
+                  三件套居中对称陈列于暖光木桌，三件各占画面三分之一，间隔均匀；哑光软胶质感靠侧逆柔光打出边缘高光；背景仅一道浅色墙面与少量木纹，不做铺陈。
+                </div>
+                <div class="fold" id="fold">
+                  <span class="caret">▸</span> 英文生图版（实际发给生图模型的就是这一份）
+                </div>
+                <div class="en">Three-piece squeeze toy set arranged symmetrically on a warm wooden table, each item occupying one third of the frame with even spacing, matte soft-rubber texture with side-back soft light for rim highlights, plain light wall background with subtle wood grain, square 1:1, ultra-detailed high-resolution e-commerce quality. //</div>
+                <div class="acts">
+                  <button class="btn primary" id="genBtn">确认并生图</button>
+                  <button class="btn">改一改</button>
+                  <button class="btn">取消</button>
+                  <span class="hint">未确认不会发出生图请求</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- 出图结果 -->
+            <div class="thumbs-in" style="margin-top:12px">
+              <div class="thumb sq">
+                <svg class="ph" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  <rect width="100" height="100" fill="#241C16"/>
+                  <ellipse cx="35" cy="62" rx="16" ry="13" fill="#D9A24A"/><ellipse cx="62" cy="55" rx="14" ry="12" fill="#E4C489"/>
+                  <ellipse cx="50" cy="74" rx="13" ry="10" fill="#C98B3E"/><ellipse cx="50" cy="30" rx="26" ry="9" fill="#3A2C20"/>
+                </svg>
+                <span class="tag done">主图 · 已完成</span>
+              </div>
+              <div class="thumb sq">
+                <svg class="ph" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  <rect width="100" height="100" fill="#1F2A24"/>
+                  <rect x="22" y="34" width="56" height="40" rx="6" fill="#2E3D33"/>
+                  <ellipse cx="50" cy="56" rx="14" ry="11" fill="#D9A24A"/>
+                </svg>
+                <span class="tag done">宣传图 · 已完成</span>
+              </div>
+              <div class="thumb sq">
+                <svg class="ph" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  <rect width="100" height="100" fill="#221A26"/>
+                  <ellipse cx="38" cy="58" rx="14" ry="12" fill="#E4C489"/><ellipse cx="62" cy="62" rx="13" ry="11" fill="#C98B3E"/>
+                </svg>
+                <span class="tag done">使用图 · 已完成</span>
+              </div>
+              <div class="thumb sq loading">
+                <svg class="ph" viewBox="0 0 100 100" preserveAspectRatio="none">
+                  <rect width="100" height="100" fill="#1A1F27"/>
+                </svg>
+                <span class="tag">细节图 · 生成中</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 底部：输入区（含"本轮注入了哪些记忆"可视化） -->
+    <footer class="composer">
+      <div class="inject" id="inject">
+        <span class="hint2">本轮记忆</span>
+        <span class="chip">规则 identity 8.4k</span>
+        <span class="chip hit">命中 · 价格贴压住商品名</span>
+        <span class="chip hit">命中 · 套装居中对称陈列</span>
+        <span style="margin-left:auto">对话中途不读不写 · 空闲 3 分钟才起草新记忆</span>
+      </div>
+      <div class="typing">
+        <button class="icon-btn" title="上传图片">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 16V5"/><path d="M8 9l4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        </button>
+        <div class="box" id="box" contenteditable="true" data-ph="说要什么图型、几张、什么风格……（有新图上传时会重新读一次记忆）"></div>
+        <button class="send" id="sendBtn">↑</button>
+      </div>
+    </footer>
+  </main>
+
+  <!-- 右：记忆 / 待确认队列 -->
+  <aside class="mem" id="mem">
+    <header>
+      <div class="h1">
+        <h2>记忆</h2>
+        <span class="n" id="qcount">3 待确认</span>
+      </div>
+      <div class="sub"><b id="memCat">捏捏乐</b> · 本类目独立记忆，与美妆 / 通用互不可见</div>
+      <div class="meta">
+        <span class="chip">规则 8.4k</span>
+        <span class="chip">纠错 12</span>
+        <span class="chip">案例 7</span>
+        <span class="chip hit">已复盘</span>
+      </div>
+      <div class="tabs">
+        <button class="tab on">待确认 3</button>
+        <button class="tab">规则</button>
+        <button class="tab">纠错</button>
+        <button class="tab">案例 · 色板</button>
+        <button class="tab">规则建议</button>
+      </div>
+    </header>
+
+    <div class="q" id="q">
+      <div class="draftcard" data-kind="fix">
+        <span class="scan"></span>
+        <span class="kind fix">● 纠错</span>
+        <div class="txt">价格贴不得压住商品名 —— 出图前按主图底部安全区自查</div>
+        <div class="tags"><span class="tagx">#捏捏乐</span><span class="tagx">#主图</span><span class="tagx">#安全区</span></div>
+        <div class="src"><span>来源：空闲心跳 · 今天 18:32</span></div>
+        <div class="row">
+          <button class="mini go" data-act="write">写入</button>
+          <button class="mini no" data-act="reject">驳回</button>
+        </div>
+      </div>
+
+      <div class="draftcard" data-kind="lib">
+        <span class="scan"></span>
+        <span class="kind lib">● 案例 · 色板</span>
+        <div class="txt">套装图用居中对称陈列 —— 凡 3 件套及以上、需要一眼看齐件数时适用</div>
+        <div class="tags"><span class="tagx">#捏捏乐</span><span class="tagx">#套装</span></div>
+        <div class="src"><span>来源：空闲心跳 · 今天 18:32</span></div>
+        <div class="row">
+          <button class="mini go" data-act="write">写入</button>
+          <button class="mini no" data-act="reject">驳回</button>
+        </div>
+      </div>
+
+      <div class="draftcard" data-kind="rule">
+        <span class="scan"></span>
+        <span class="kind rule">● 规则建议</span>
+        <div class="txt">主图底部保留 ≥8% 纯空白</div>
+        <div class="tags"><span class="tagx">#主图</span><span class="tagx">#安全区</span></div>
+        <div class="src"><span>判据：商品占幅 &gt;85%，或运营要贴价格贴</span><span>· 采纳后进规则区</span></div>
+        <div class="row">
+          <button class="mini go" data-act="write">采纳进规则</button>
+          <button class="mini no" data-act="reject">驳回</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <button class="btn" id="allBtn">全部写入</button>
+      <div class="sw" id="sw" title="默认关：会话状态也要你确认">
+        <span>会话状态自动写入</span>
+        <span class="dot"></span>
+      </div>
+    </footer>
+  </aside>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  // ① 类目切换（记忆 + 会话整套切换的可见部分）
+  const memCat = document.getElementById('memCat');
+  const sysCat = document.getElementById('sysCat');
+  document.querySelectorAll('.pill[data-cat]').forEach(p => {
+    p.addEventListener('click', () => {
+      document.querySelectorAll('.pill[data-cat]').forEach(x => x.classList.remove('on'));
+      p.classList.add('on');
+      memCat.textContent = p.dataset.cat;
+      sysCat.textContent = p.dataset.cat;
+      toast('已切换工作类目：' + p.dataset.cat + ' · 记忆与对话整套切换');
+    });
+  });
+
+  // ② 核心动作：待确认条目"签署仪式" —— 沁色扫描后归档
+  const q = document.getElementById('q');
+  const badge = document.getElementById('badge');
+  const qcount = document.getElementById('qcount');
+  function refresh() {
+    const n = q.querySelectorAll('.draftcard:not(.gone)').length;
+    badge.textContent = n;
+    badge.classList.toggle('zero', n === 0);
+    qcount.textContent = n + ' 待确认';
+    if (n === 0) {
+      q.innerHTML = '<div class="empty">本类目没有待确认的记忆<br><span style="font-size:12px">空闲 3 分钟后会再起草</span></div>';
+    }
+  }
+  function archive(card, msg) {
+    card.classList.add('scanning');
+    setTimeout(() => { card.classList.add('gone'); toast(msg); }, 380);
+    setTimeout(refresh, 700);
+  }
+  q.addEventListener('click', e => {
+    const btn = e.target.closest('.mini'); if (!btn) return;
+    const card = btn.closest('.draftcard');
+    if (btn.dataset.act === 'write') {
+      const kind = card.dataset.kind;
+      const file = kind === 'fix' ? 'feedback.md' : kind === 'lib' ? 'library.md' : 'identity.md（规则区）';
+      archive(card, '已写入 ' + file + ' · 只写了这一条');
+    } else {
+      card.classList.add('scanning');
+      setTimeout(() => { card.classList.add('gone'); toast('已驳回 · 进黑名单，之后不再重复提'); }, 340);
+      setTimeout(refresh, 660);
+    }
+  });
+  document.getElementById('allBtn').addEventListener('click', () => {
+    const cards = [...q.querySelectorAll('.draftcard:not(.gone)')];
+    if (!cards.length) return toast('没有待确认的条目');
+    cards.forEach((c, i) => setTimeout(() => archive(c, '已写入 1 条'), i * 220));
+  });
+
+  // ③ 次要动作：输入时"本轮记忆"点亮 —— 让看不见的注入变可见
+  const box = document.getElementById('box');
+  const inject = document.getElementById('inject');
+  box.addEventListener('focus', () => inject.classList.add('live'));
+  box.addEventListener('blur', () => inject.classList.remove('live'));
+
+  // ④ 英文生图版折叠
+  document.getElementById('fold').addEventListener('click', function () {
+    this.classList.toggle('open');
+  });
+
+  // ⑤ 例行动作
+  document.getElementById('sw').addEventListener('click', function () {
+    this.classList.toggle('on');
+    toast(this.classList.contains('on') ? '会话状态改为自动写入' : '会话状态仍需你确认');
+  });
+  document.getElementById('genBtn').addEventListener('click', () => toast('已提交生成 · 队列里 4 张，逐张出图'));
+  document.getElementById('sendBtn').addEventListener('click', () => toast('已发送（样品演示，不发真实请求）'));
+  document.getElementById('memBtn').addEventListener('click', () => {
+    document.getElementById('mem').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+
+  let t;
+  function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg; el.classList.add('on');
+    clearTimeout(t); t = setTimeout(() => el.classList.remove('on'), 2000);
+  }
+  refresh();
+</script>
+</body>
+</html>

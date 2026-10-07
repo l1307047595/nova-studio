@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Nova Studio · 界面原型（同一套设计语言 · 5 个界面）</title>
+<style>
+  /* ══════════════════════════════════════════════════════════════
+     设计语言（全部界面共用）
+     表面类型：Agent=Operate ｜ 生图工作台=Configure+Operate
+               素材=Explore ｜ 设置=Configure ｜ 画布=Explore+Inspect
+     手法：暗色原生 · 靠明度分层而非阴影 · 半透明白描边 · 单一强调色
+     排版：字号 11/12/13/13.5/17/22 · 字重 400/500/600 · 证据类内容等宽
+     ══════════════════════════════════════════════════════════════ */
+  :root {
+    --canvas:#08090a; --panel:#0f1011; --raise:#191a1b;
+    --line:rgba(255,255,255,.06); --line-2:rgba(255,255,255,.10);
+    --ink:#f7f8f8; --ink-2:#c9cfd8; --ink-3:#8a8f98; --ink-4:#62666d;
+    --acc:#fe8210; --acc-dim:rgba(254,130,16,.14); --ok:#27a644;
+    --sans:system-ui,-apple-system,"Segoe UI","Microsoft YaHei","PingFang SC",sans-serif;
+    --mono:ui-monospace,"Cascadia Mono",Consolas,"SF Mono",Menlo,monospace;
+    --r:8px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:var(--canvas);color:var(--ink);font:13.5px/1.6 var(--sans);
+       -webkit-font-smoothing:antialiased;font-feature-settings:"tnum" 1;overflow:hidden}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+  .lbl{font-family:var(--mono);font-size:10px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-4)}
+  .mono{font-family:var(--mono);font-size:11px}
+
+  .app{display:flex;height:100dvh}
+  /* 图标栏 */
+  .rail{width:56px;flex:0 0 56px;background:var(--panel);border-right:1px solid var(--line);
+        display:flex;flex-direction:column;align-items:center;padding:12px 0;gap:2px}
+  .mark{width:28px;height:28px;border-radius:7px;margin-bottom:12px;background:var(--acc);color:#14060a;
+        display:grid;place-items:center;font-weight:700;font-size:13px}
+  .ico{width:36px;height:36px;border-radius:var(--r);display:grid;place-items:center;color:var(--ink-4);position:relative}
+  .ico:hover{background:rgba(255,255,255,.04);color:var(--ink-2)}
+  .ico.on{color:var(--ink);background:rgba(255,255,255,.04)}
+  .ico.on::after{content:"";position:absolute;right:-12px;top:15px;width:4px;height:4px;border-radius:50%;background:var(--acc)}
+  .ico[data-tip]:hover::before{content:attr(data-tip);position:absolute;left:44px;top:9px;z-index:40;
+      background:var(--raise);border:1px solid var(--line-2);border-radius:6px;padding:4px 8px;
+      font-size:11px;color:var(--ink-2);white-space:nowrap}
+
+  .stage{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
+  .screen{display:none;flex:1 1 auto;min-height:0;flex-direction:column}
+  .screen.on{display:flex}
+
+  /* 通用条 */
+  .bar{display:flex;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line);
+       background:var(--panel);min-height:52px}
+  .bar .title{font-size:14px;font-weight:600;letter-spacing:-.01em}
+  .bar .sub{font-size:11.5px;color:var(--ink-4)}
+  .right{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .seg{display:flex;background:var(--canvas);border:1px solid var(--line);border-radius:7px;padding:2px}
+  .seg button{padding:5px 11px;border-radius:5px;font-size:12px;color:var(--ink-3)}
+  .seg button:hover{color:var(--ink-2)}
+  .seg button.on{background:var(--raise);color:var(--ink)}
+  .ghost{display:inline-flex;align-items:center;gap:7px;padding:6px 10px;border-radius:7px;font-size:12px;
+         color:var(--ink-2);border:1px solid var(--line);background:rgba(255,255,255,.02)}
+  .ghost:hover{background:rgba(255,255,255,.04);color:var(--ink);border-color:var(--line-2)}
+  .cta{display:inline-flex;align-items:center;gap:8px;padding:7px 13px;border-radius:7px;font-size:12.5px;
+       font-weight:600;background:var(--acc);color:#14060a}
+  .cta:hover{filter:brightness(1.08)}
+  .kbd{font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:4px;background:rgba(0,0,0,.28);color:#2b1300}
+  .count{font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:4px;background:var(--acc);color:#14060a;font-weight:600}
+  .count.dim{background:rgba(255,255,255,.08);color:var(--ink-3)}
+  .tag{font-family:var(--mono);font-size:10px;padding:2px 6px;border-radius:4px;
+       border:1px solid var(--line-2);color:var(--ink-3)}
+  .tag.hit{border-color:rgba(254,130,16,.4);color:#ffd9ae;background:rgba(254,130,16,.08)}
+
+  .body{flex:1 1 auto;min-height:0;display:flex;overflow:hidden}
+  .col{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  .pane-scroll{overflow:auto;scrollbar-width:thin}
+  .divider{border-left:1px solid var(--line)}
+
+  /* 资产卡（图 = 规格，不画假商品） */
+  .asset{position:relative;border:1px solid var(--line-2);border-radius:var(--r);background:rgba(255,255,255,.025);
+         display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;
+         aspect-ratio:1/1;overflow:hidden}
+  .asset::before{content:"";position:absolute;inset:5px;border-radius:5px;border:1px solid rgba(255,255,255,.05)}
+  .asset .t{font-size:12px;color:var(--ink-2)}
+  .asset .s{font-family:var(--mono);font-size:10px;color:var(--ink-4)}
+  .asset:hover{background:rgba(255,255,255,.04)}
+  .asset .dot{position:absolute;top:7px;left:7px;width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.38)}
+  .asset.run .dot{background:var(--acc);box-shadow:0 0 0 3px var(--acc-dim)}
+  .asset.run::before{border-color:rgba(254,130,16,.28)}
+  .asset.run::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1px;
+      background:linear-gradient(90deg,transparent,var(--acc),transparent);animation:slide 1.4s linear infinite}
+  .asset.sel{border-color:var(--acc);background:var(--acc-dim)}
+  .asset .pick{position:absolute;top:6px;right:6px;width:16px;height:16px;border-radius:4px;
+      border:1px solid var(--line-2);display:grid;place-items:center;font-size:10px;color:transparent}
+  .asset.sel .pick{background:var(--acc);border-color:var(--acc);color:#14060a}
+  .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(132px,1fr))}
+  @keyframes slide{from{transform:translateX(-60%)}to{transform:translateX(60%)}}
+
+  /* 表单 */
+  .field{margin-bottom:14px}
+  .field > .lbl{display:block;margin-bottom:6px}
+  .inp,select{width:100%;background:var(--canvas);border:1px solid var(--line);border-radius:7px;
+      padding:7px 9px;font:13px var(--sans);color:var(--ink-2);outline:none}
+  select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--ink-4) 50%),
+      linear-gradient(135deg,var(--ink-4) 50%,transparent 50%);
+      background-position:calc(100% - 14px) 14px,calc(100% - 9px) 14px;
+      background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+  .inp:focus,select:focus{border-color:rgba(254,130,16,.5)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chip{font-size:11.5px;padding:4px 9px;border-radius:999px;border:1px solid var(--line-2);color:var(--ink-3)}
+  .chip:hover{color:var(--ink-2)}
+  .chip.on{background:var(--raise);color:var(--ink);border-color:var(--line-2)}
+  .rowkv{display:grid;grid-template-columns:104px 1fr;gap:6px 12px;font-size:12.5px;color:var(--ink-2)}
+  .rowkv .k{font-family:var(--mono);font-size:10px;color:var(--ink-4);padding-top:3px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{text-align:left;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+     color:var(--ink-4);font-weight:400;padding:0 10px 7px 0}
+  td{padding:8px 10px 8px 0;border-top:1px solid rgba(255,255,255,.05);color:var(--ink-2)}
+  td .mono{color:var(--ink-3)}
+  .sw{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--ink-4)}
+  .sw .track{margin-left:auto;width:30px;height:17px;border-radius:999px;background:rgba(255,255,255,.1);
+      position:relative;transition:background .18s}
+  .sw .track::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;
+      background:#7b828d;transition:transform .18s,background .18s}
+  .sw.on .track{background:rgba(254,130,16,.45)}
+  .sw.on .track::after{transform:translateX(13px);background:var(--acc)}
+
+  /* 队列行（Linear 式密排） */
+  .rows{padding:6px 0}
+  .qrow{display:flex;gap:10px;padding:11px 14px 12px;position:relative}
+  .qrow + .qrow{border-top:1px solid rgba(255,255,255,.04)}
+  .qrow:hover{background:rgba(255,255,255,.04)}
+  .qrow .kdot{width:6px;height:6px;border-radius:50%;margin-top:6px;flex:0 0 6px;background:var(--ink-4)}
+  .qrow[data-k="rule"] .kdot{background:var(--acc)}
+  .qrow .line{font-size:12.5px;color:var(--ink-2)}
+  .qrow .sub{margin-top:4px;font-family:var(--mono);font-size:10px;color:var(--ink-4);display:flex;gap:8px;flex-wrap:wrap}
+  .qrow .acts{display:flex;gap:4px;opacity:0;transition:opacity .14s}
+  .qrow:hover .acts{opacity:1}
+  .mini{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;border:1px solid var(--line);color:var(--ink-3);font-size:12px}
+  .mini.yes:hover{border-color:rgba(39,166,68,.55);color:#7ee39a;background:rgba(39,166,68,.1)}
+  .mini.no:hover{border-color:rgba(242,84,60,.5);color:#ff9f97;background:rgba(242,84,60,.1)}
+
+  /* 画布 */
+  .canvas-wrap{position:relative;flex:1 1 auto;background:#0b0c0e;overflow:hidden}
+  .canvas-wrap::before{content:"";position:absolute;inset:0;
+      background-image:radial-gradient(rgba(255,255,255,.055) 1px,transparent 1px);
+      background-size:22px 22px}
+  .floating{position:absolute;z-index:5;background:var(--panel);border:1px solid var(--line-2);
+      border-radius:9px;padding:5px;display:flex;gap:3px}
+  .floating.tools{left:16px;top:16px}
+  .floating.zoom{left:16px;bottom:16px}
+  .tool{width:32px;height:32px;border-radius:7px;display:grid;place-items:center;color:var(--ink-4)}
+  .tool:hover{background:rgba(255,255,255,.05);color:var(--ink-2)}
+  .tool.on{background:var(--raise);color:var(--ink)}
+  .node{position:absolute;width:196px;background:var(--raise);border:1px solid var(--line-2);
+      border-radius:9px;padding:10px 11px}
+  .node.on{border-color:var(--acc);box-shadow:0 0 0 3px var(--acc-dim)}
+  .node .nt{font-size:12px;color:var(--ink);margin-bottom:5px;display:flex;align-items:center;gap:7px}
+  .node .np{font-size:11.5px;color:var(--ink-3);line-height:1.5}
+  .node .port{position:absolute;width:7px;height:7px;border-radius:50%;background:var(--panel);border:1px solid var(--line-2)}
+  .node .port.l{left:-4px;top:50%} .node .port.r{right:-4px;top:50%}
+  .edges{position:absolute;inset:0;pointer-events:none}
+  .inspector{width:300px;flex:0 0 300px;background:var(--panel);border-left:1px solid var(--line);
+      display:flex;flex-direction:column}
+
+  .flash{position:fixed;left:50%;bottom:22px;transform:translate(-50%,10px);background:var(--raise);
+      border:1px solid var(--line-2);border-radius:8px;padding:8px 13px;font-size:12.5px;color:var(--ink-2);
+      box-shadow:0 6px 20px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;z-index:60}
+  .flash.on{opacity:1;transform:translate(-50%,0)}
+  @media (prefers-reduced-motion:reduce){.asset.run::after{animation:none} *{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 图标栏：切换 5 个界面 -->
+  <nav class="rail">
+    <div class="mark">N</div>
+    <button class="ico on" data-go="agent" data-tip="Agent 对话"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 5.5h16v10.5H9l-5 4z"/></svg></button>
+    <button class="ico" data-go="gen" data-tip="生图工作台"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M4 15.5l4.5-4 3.5 2.5 3-2.5 5 5"/></svg></button>
+    <button class="ico" data-go="lib" data-tip="我的素材"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3.5" y="4.5" width="7" height="7" rx="1.5"/><rect x="13.5" y="4.5" width="7" height="7" rx="1.5"/><rect x="3.5" y="14.5" width="7" height="5" rx="1.5"/><rect x="13.5" y="14.5" width="7" height="5" rx="1.5"/></svg></button>
+    <button class="ico" data-go="canvas" data-tip="无限画布"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 18.5L10 6l4 9 2-3 4 6.5z"/></svg></button>
+    <button class="ico" data-go="settings" data-tip="设置" style="margin-top:auto"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.2M12 18.3v2.2M4.8 12H7M17 12h2.2M6.9 6.9l1.6 1.6M15.5 15.5l1.6 1.6M17.1 6.9l-1.6 1.6M8.5 15.5l-1.6 1.6"/></svg></button>
+  </nav>
+
+  <div class="stage">
+
+    <!-- ══ 1. Agent 对话（Operate） ══ -->
+    <section class="screen on" id="s-agent">
+      <header class="bar">
+        <div class="seg"><button class="on" data-cat>捏捏乐</button><button data-cat>美妆</button><button data-cat>通用</button></div>
+        <button class="ghost">＋ 新建类目</button>
+        <div class="right">
+          <div class="sub">榴莲套装 · 12:31</div>
+          <button class="ghost">记忆 <span class="count" id="badge">3</span></button>
+        </div>
+      </header>
+      <div class="body">
+        <div class="col pane-scroll" style="flex:1 1 auto;padding:22px 26px">
+          <div class="lbl" style="margin-bottom:10px">session · 记忆已在会话开始注入 · identity 8.4k + 命中 2 条</div>
+          <div style="border-left:1px solid var(--line);padding-left:14px;margin:0 0 26px 8px">
+            <div class="lbl" style="margin-bottom:6px">你 · 12:31</div>
+            <div style="color:#d6dbe3;max-width:64ch">照着这张图出一组套图，主图强调三件套。</div>
+            <div style="display:flex;gap:8px;margin-top:11px">
+              <div class="asset" style="width:88px;aspect-ratio:1/1"><span class="t">img_1</span><span class="s">1080²</span></div>
+            </div>
+          </div>
+          <div style="margin-bottom:14px">
+            <div class="lbl" style="margin-bottom:6px">agent · 12:31 · 读图 8 字段</div>
+            <div style="color:#d6dbe3;max-width:64ch">三件套（榴莲造型 + 橙黄杯 + 斑点圆球），哑光软胶，参考图无印刷文字，食品造型。<br>
+              本单主张 <b style="color:var(--ink)">「三件成套，一手都捏得住」</b> —— 视觉机制用对称陈列 + 三件同框，依据：件数与组合。</div>
+          </div>
+          <section style="border:1px solid var(--line-2);border-radius:10px;background:rgba(255,255,255,.02);overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--line)">
+              <span style="font-size:12px;font-weight:600;color:var(--ink-2)">提案 1 / 4 · 主图</span>
+              <span class="mono" style="color:var(--ink-4)">1:1 · 参考图 img_1 · 中英两份逐句对应</span>
+            </div>
+            <div style="padding:12px">
+              <div class="inp" contenteditable="true" style="line-height:1.65;color:var(--ink-2)">三件套居中对称陈列于暖光木桌，三件各占画面三分之一、间隔均匀；哑光软胶质感靠侧逆柔光打出边缘高光；背景只留一道浅色墙面与少量木纹，不做铺陈。</div>
+            </div>
+            <div style="display:flex;gap:16px;padding:11px 13px;border-top:1px solid var(--line)">
+              <span class="mono" style="color:var(--ink-4)">模型 <span style="color:var(--ink-3)">gpt-image-2</span></span>
+              <span class="mono" style="color:var(--ink-4)">尺寸 <span style="color:var(--ink-3)">1024×1024</span></span>
+              <span class="mono" style="color:var(--ink-4)">参考图 <span style="color:var(--ink-3)">1 张</span></span>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-top:1px solid var(--line-2);background:rgba(255,255,255,.03)">
+              <button class="cta">确认并生图 <span class="kbd">⌘↵</span></button>
+              <button class="ghost">调整提案</button>
+              <span style="margin-left:auto;font-size:11px;color:var(--ink-4)">未确认不会发出生图请求</span>
+            </div>
+          </section>
+          <div style="display:flex;align-items:center;gap:9px;margin:22px 0 9px">
+            <span class="lbl">本轮出图</span><span style="flex:1;height:1px;background:var(--line)"></span>
+          </div>
+          <div class="grid" style="grid-template-columns:repeat(4,1fr)">
+            <div class="asset"><span class="dot"></span><span class="t">主图</span><span class="s">1024² · 1:1</span></div>
+            <div class="asset"><span class="dot"></span><span class="t">宣传图</span><span class="s">1024² · 1:1</span></div>
+            <div class="asset"><span class="dot"></span><span class="t">使用图</span><span class="s">1024² · 4:5</span></div>
+            <div class="asset run"><span class="t">细节图</span><span class="s">排队 4/4 · 42s</span></div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:18px;padding:7px 10px;
+               border:1px solid var(--line);border-radius:7px;background:rgba(255,255,255,.015)">
+            <span class="lbl">本轮记忆</span>
+            <span class="tag">identity 8.4k</span>
+            <span class="tag hit">命中 · 价格贴压住商品名</span>
+            <span class="tag hit">命中 · 套装居中对称陈列</span>
+            <span style="margin-left:auto;font-size:11px;color:var(--ink-4)">对话中途不读不写 · 空闲 3 分钟才起草</span>
+          </div>
+        </div>
+        <aside class="divider col" style="width:340px;flex:0 0 340px;background:var(--panel)">
+          <header style="padding:13px 14px 10px;border-bottom:1px solid var(--line)">
+            <div style="display:flex;align-items:baseline;gap:8px">
+              <h2 style="margin:0;font-size:14px;font-weight:600">记忆</h2>
+              <span style="font-size:11px;color:var(--ink-4)"><span data-cat>捏捏乐</span> · 本类目独立</span>
+            </div>
+            <div style="display:flex;gap:13px;margin-top:10px">
+              <button style="font-size:11.5px;color:var(--ink);padding-bottom:6px;box-shadow:inset 0 -1px 0 0 var(--acc)">待确认 <span id="qnum">3</span></button>
+              <button style="font-size:11.5px;color:var(--ink-4)">规则</button>
+              <button style="font-size:11.5px;color:var(--ink-4)">纠错</button>
+              <button style="font-size:11.5px;color:var(--ink-4)">案例</button>
+            </div>
+          </header>
+          <div class="pane-scroll rows" id="qrows" style="flex:1 1 auto">
+            <div class="qrow" data-k="fix"><span class="kdot"></span><div style="flex:1 1 auto;min-width:0">
+              <div class="line">价格贴不得压住商品名</div>
+              <div class="sub"><span>#主图</span><span>空闲心跳 18:32</span></div></div>
+              <div class="acts"><button class="mini yes" data-act="yes">✓</button><button class="mini no" data-act="no">✕</button></div></div>
+            <div class="qrow" data-k="lib"><span class="kdot"></span><div style="flex:1 1 auto;min-width:0">
+              <div class="line">套装图用居中对称陈列</div>
+              <div class="sub"><span>#套装</span><span>空闲心跳 18:32</span></div></div>
+              <div class="acts"><button class="mini yes" data-act="yes">✓</button><button class="mini no" data-act="no">✕</button></div></div>
+            <div class="qrow" data-k="rule"><span class="kdot"></span><div style="flex:1 1 auto;min-width:0">
+              <div class="line">主图底部保留 ≥8% 纯空白</div>
+              <div class="sub"><span>#主图</span><span>待采纳 → 规则区</span><span>复发 3 次</span></div></div>
+              <div class="acts"><button class="mini yes" data-act="yes">✓</button><button class="mini no" data-act="no">✕</button></div></div>
+          </div>
+          <div style="border-top:1px solid var(--line);padding:10px 14px 12px">
+            <button class="ghost" id="submitAll" style="width:100%;justify-content:center">写入全部 3 条 <span class="kbd" style="background:rgba(0,0,0,.3);color:var(--ink-3)">⌘⏎</span></button>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ══ 2. 生图工作台（Configure + Operate） ══ -->
+    <section class="screen" id="s-gen">
+      <header class="bar">
+        <span class="title">生图工作台</span>
+        <span class="sub">读图 → 定稿 → 批量出图；每一步都可回溯</span>
+        <div class="right">
+          <div class="seg"><button class="on">文生图</button><button>图生图</button><button>批量套图</button></div>
+          <button class="cta">提交 4 张 <span class="kbd">⌘↵</span></button>
+        </div>
+      </header>
+      <div class="body">
+        <div class="divider col pane-scroll" style="width:312px;flex:0 0 312px;background:var(--panel);padding:16px 16px 24px">
+          <div class="field">
+            <span class="lbl">参考图（铁律：没有参考图不出图）</span>
+            <div style="display:flex;gap:8px;align-items:center">
+              <div class="asset" style="width:72px;aspect-ratio:1/1"><span class="s">img_1</span></div>
+              <div class="asset" style="width:72px;aspect-ratio:1/1"><span class="s">img_2</span></div>
+              <button class="ghost" style="width:72px;height:72px;justify-content:center;border-style:dashed">＋</button>
+            </div>
+          </div>
+          <div class="field"><span class="lbl">渠道</span>
+            <select><option>苍云算力中转 · gpt-image-2</option><option>opencode zen Go · gpt-image-2</option></select>
+          </div>
+          <div class="field"><span class="lbl">比例</span>
+            <div class="chips"><button class="chip on">1:1</button><button class="chip">4:5</button><button class="chip">16:9</button><button class="chip">按参考图</button></div>
+          </div>
+          <div class="field"><span class="lbl">质量 / 风格 / 背景</span>
+            <div class="chips"><button class="chip on">high</button><button class="chip">medium</button><button class="chip">low</button>
+              <button class="chip">vivid</button><button class="chip on">auto</button></div>
+          </div>
+          <div class="field"><span class="lbl">中文稿（审这一份；英文稿自动逐句对应）</span>
+            <textarea class="inp" style="height:104px;resize:vertical;line-height:1.6">三件套居中对称陈列于暖光木桌，三件各占画面三分之一；哑光软胶质感靠侧逆柔光打出边缘高光；背景只留浅色墙面与少量木纹。</textarea>
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:rgba(255,255,255,.015)">
+            <span class="lbl" style="width:100%">本次将带上的记忆</span>
+            <span class="tag">identity 8.4k</span><span class="tag hit">纠错 2 条</span><span class="tag">案例 1 条</span>
+          </div>
+        </div>
+        <div class="col" style="flex:1 1 auto;min-height:0">
+          <div style="display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--line)">
+            <span class="lbl">队列 4 张</span>
+            <span class="mono" style="color:var(--ink-4)">并发 8 · 已完成 3 · 队列 1 · 均耗时 47s</span>
+            <div class="right"><button class="ghost">重跑失败项</button><button class="ghost">全部下载</button></div>
+          </div>
+          <div class="pane-scroll" style="padding:16px">
+            <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(160px,1fr))">
+              <div class="asset"><span class="dot"></span><span class="t">主图</span><span class="s">1024² · 1:1 · 47s</span></div>
+              <div class="asset"><span class="dot"></span><span class="t">宣传图</span><span class="s">1024² · 1:1 · 52s</span></div>
+              <div class="asset"><span class="dot"></span><span class="t">使用图</span><span class="s">1024² · 4:5 · 44s</span></div>
+              <div class="asset run"><span class="t">细节图</span><span class="s">队列 1/4 · 已等 12s</span></div>
+              <div class="asset"><span class="dot"></span><span class="t">主图 · 变体 B</span><span class="s">1024² · 1:1 · 49s</span></div>
+              <div class="asset" style="border-style:dashed;background:transparent"><span class="t" style="color:var(--ink-4)">＋ 再加一张</span></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:9px;margin:22px 0 9px">
+              <span class="lbl">终审结果</span><span style="flex:1;height:1px;background:var(--line)"></span>
+            </div>
+            <div style="display:flex;gap:12px;flex-wrap:wrap">
+              <span class="tag">禁词扫描 通过</span>
+              <span class="tag">参考图原文复用 0 处</span>
+              <span class="tag">同一单一致性 通过</span>
+              <span class="tag hit">主图 · 底部安全区 未过（≤8%）→ 已标记</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ 3. 我的素材（Explore） ══ -->
+    <section class="screen" id="s-lib">
+      <header class="bar">
+        <span class="title">我的素材</span>
+        <span class="sub">本地素材库 · 另有 <span class="mono">3</span> 条来自参考图抓取</span>
+        <div class="right">
+          <input class="inp" placeholder="搜商品名 / 标签 / 文件名" style="width:220px">
+          <div class="seg"><button class="on">网格</button><button>列表</button></div>
+        </div>
+      </header>
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap">
+        <span class="lbl">筛选</span>
+        <div class="chips">
+          <button class="chip on">全部类目</button><button class="chip">捏捏乐</button><button class="chip">美妆</button><button class="chip">通用</button>
+        </div>
+        <span style="width:1px;height:16px;background:var(--line)"></span>
+        <div class="chips">
+          <button class="chip on">全部图型</button><button class="chip">主图</button><button class="chip">宣传图</button><button class="chip">使用图</button><button class="chip">细节图</button>
+        </div>
+        <span style="width:1px;height:16px;background:var(--line)"></span>
+        <div class="chips"><button class="chip on">最近 30 天</button><button class="chip">已入库</button><button class="chip">未打标签</button></div>
+      </div>
+      <div class="body">
+        <div class="col pane-scroll" style="flex:1 1 auto;padding:16px">
+          <div class="grid">
+            <div class="asset sel"><span class="pick">✓</span><span class="t">榴莲套装</span><span class="s">#套装 · 3 件</span></div>
+            <div class="asset sel"><span class="pick">✓</span><span class="t">黄油三块</span><span class="s">#食品造型</span></div>
+            <div class="asset sel"><span class="pick">✓</span><span class="t">橙黄杯</span><span class="s">#单件</span></div>
+            <div class="asset"><span class="pick">✓</span><span class="t">斑点圆球</span><span class="s">#单件</span></div>
+            <div class="asset"><span class="pick">✓</span><span class="t">圣诞礼盒</span><span class="s">#节日</span></div>
+            <div class="asset"><span class="pick">✓</span><span class="t">布丁造型</span><span class="s">#食品造型</span></div>
+            <div class="asset"><span class="pick">✓</span><span class="t">土豆捏捏</span><span class="s">#单件</span></div>
+            <div class="asset"><span class="pick">✓</span><span class="t">未命名</span><span class="s" style="color:#ff9f97">未打标签</span></div>
+            <div class="asset"><span class="pick">✓</span><span class="t">雪花款</span><span class="s">#节日</span></div>
+            <div class="asset"><span class="pick">✓</span><span class="t">指甲护理液</span><span class="s">#美妆</span></div>
+            <div class="asset"><span class="pick">✓</span><span class="t">唇釉套装</span><span class="s">#美妆</span></div>
+            <div class="asset"><span class="pick">✓</span><span class="t">积木小方</span><span class="s">#通用</span></div>
+          </div>
+        </div>
+        <aside class="divider col" style="width:264px;flex:0 0 264px;background:var(--panel);padding:16px">
+          <span class="lbl" style="margin-bottom:10px">已选 3 张</span>
+          <div class="rowkv">
+            <span class="k">用途</span><span>作为套图参考图</span>
+            <span class="k">类目</span><span>捏捏乐</span>
+            <span class="k">去重</span><span>3 张均未重复</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">
+            <button class="cta" style="justify-content:center">加入生图工作台</button>
+            <button class="ghost" style="justify-content:center">批量打标签</button>
+            <button class="ghost" style="justify-content:center">导出所选</button>
+          </div>
+          <div style="margin-top:auto;padding-top:16px;border-top:1px solid var(--line)">
+            <div class="lbl" style="margin-bottom:8px">来源</div>
+            <div class="rowkv">
+              <span class="k">本地导入</span><span>8 张</span>
+              <span class="k">抓图</span><span>3 张</span>
+              <span class="k">出图回存</span><span>1 张</span>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ══ 4. 无限画布（Explore + Inspect） ══ -->
+    <section class="screen" id="s-canvas">
+      <header class="bar">
+        <span class="title">无限画布</span>
+        <span class="sub">捏捏乐 · 榴莲套装 · 自动保存</span>
+        <div class="right">
+          <button class="ghost">导出 PNG</button>
+          <button class="ghost">素材库</button>
+          <button class="cta">从这里出图</button>
+        </div>
+      </header>
+      <div class="body">
+        <div class="canvas-wrap" id="cv">
+          <div class="floating tools">
+            <button class="tool on" data-tip="选择"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 3l14 8-6 1.5-2.5 6z"/></svg></button>
+            <button class="tool"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M4 15.5l4.5-4 3.5 2.5 3-2.5 5 5"/></svg></button>
+            <button class="tool"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 4h12M12 4v16M8 20h8"/></svg></button>
+            <button class="tool"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M7.4 16.6C10 14 12 12 16.6 7.4"/></svg></button>
+          </div>
+          <div class="floating zoom"><button class="tool">−</button><span class="mono" style="padding:7px 6px;color:var(--ink-3)">100%</span><button class="tool">＋</button></div>
+          <svg class="edges">
+            <path d="M296 118 C 340 118, 340 210, 392 210" stroke="rgba(255,255,255,.14)" fill="none"/>
+            <path d="M588 210 C 640 210, 640 300, 700 300" stroke="rgba(255,255,255,.14)" fill="none"/>
+          </svg>
+          <div class="node" style="left:100px;top:70px"><span class="port r"></span>
+            <div class="nt"><span class="tag">参考图</span> img_1</div>
+            <div class="np">三件套 · 哑光软胶 · 无印刷文字<br><span class="mono" style="color:var(--ink-4)">1080×1080</span></div>
+          </div>
+          <div class="node on" style="left:392px;top:160px"><span class="port l"></span><span class="port r"></span>
+            <div class="nt"><span class="tag hit">提案</span> 主图 · 1:1</div>
+            <div class="np">三件套居中对称陈列于暖光木桌；背景只留浅色墙面与木纹。<br>
+              <span class="mono" style="color:var(--ink-4)">命中记忆 2 条</span></div>
+          </div>
+          <div class="node" style="left:700px;top:252px"><span class="port l"></span>
+            <div class="nt"><span class="tag">出图</span> gpt-image-2</div>
+            <div class="np">已出 3 张 · 1 张队列中<br><span class="mono" style="color:var(--ink-4)">42–52s / 张</span></div>
+          </div>
+        </div>
+        <aside class="inspector">
+          <header style="padding:12px 14px;border-bottom:1px solid var(--line)">
+            <span class="lbl">选中节点</span>
+            <div style="font-size:13px;font-weight:600;margin-top:4px">提案 · 主图 1:1</div>
+          </header>
+          <div class="pane-scroll" style="padding:14px;flex:1 1 auto">
+            <div class="rowkv">
+              <span class="k">比例</span><span>1:1</span>
+              <span class="k">模型</span><span>gpt-image-2</span>
+              <span class="k">参考图</span><span>img_1</span>
+              <span class="k">记忆</span><span>identity 8.4k · 命中 2 条</span>
+            </div>
+            <div style="margin-top:14px">
+              <span class="lbl">节点提示词</span>
+              <div class="inp" contenteditable="true" style="margin-top:6px;line-height:1.6;color:var(--ink-2)">三件套居中对称陈列于暖光木桌，三件各占画面三分之一。</div>
+            </div>
+            <div style="margin-top:14px">
+              <span class="lbl">上游连线</span>
+              <div class="mono" style="color:var(--ink-3);margin-top:6px">← 参考图 img_1</div>
+            </div>
+          </div>
+          <footer style="border-top:1px solid var(--line);padding:11px 14px;display:flex;gap:8px">
+            <button class="cta" style="flex:1 1 auto;justify-content:center">出图</button>
+            <button class="ghost">复制</button>
+          </footer>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ══ 5. 设置（Configure） ══ -->
+    <section class="screen" id="s-settings">
+      <header class="bar"><span class="title">设置</span>
+        <span class="sub">配置存在本机 · 换电脑要重新导入一次</span>
+        <div class="right"><button class="ghost">导入备份</button><button class="ghost">导出备份</button></div>
+      </header>
+      <div class="body">
+        <div class="divider col pane-scroll" style="width:212px;flex:0 0 212px;background:var(--panel);padding:12px 8px">
+          <button class="ghost" style="justify-content:flex-start;width:100%;background:rgba(255,255,255,.04);color:var(--ink);border-color:transparent">供应商与模型</button>
+          <button class="ghost" style="justify-content:flex-start;width:100%;border-color:transparent">工作类目与记忆</button>
+          <button class="ghost" style="justify-content:flex-start;width:100%;border-color:transparent">出图默认值</button>
+          <button class="ghost" style="justify-content:flex-start;width:100%;border-color:transparent">数据与备份</button>
+          <button class="ghost" style="justify-content:flex-start;width:100%;border-color:transparent">软件更新</button>
+        </div>
+        <div class="col pane-scroll" style="flex:1 1 auto;padding:20px 24px">
+          <span class="lbl">供应商</span>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 24px">
+            <div style="border:1px solid var(--line-2);border-radius:9px;padding:12px;min-width:270px;background:rgba(255,255,255,.02)">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:12.5px;color:var(--ink)">苍云算力中转</span>
+                <span class="tag" style="border-color:rgba(39,166,68,.4);color:#7ee39a">已连通</span>
+              </div>
+              <div class="mono" style="color:var(--ink-4);margin-top:6px">direct-api.cangyuansuanli.cn/v1</div>
+              <div class="mono" style="color:var(--ink-3);margin-top:3px">模型 gpt-image-2 · 58 个可用</div>
+            </div>
+            <div style="border:1px solid var(--line-2);border-radius:9px;padding:12px;min-width:270px;background:rgba(255,255,255,.02)">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="font-size:12.5px;color:var(--ink)">opencode zen Go</span>
+                <span class="tag" style="border-color:rgba(39,166,68,.4);color:#7ee39a">已连通</span>
+              </div>
+              <div class="mono" style="color:var(--ink-4);margin-top:6px">opencode.ai/zen/go/v1</div>
+              <div class="mono" style="color:var(--ink-3);margin-top:3px">模型 deepseek-v4.1-flash · 需 x-opencode-session 头</div>
+            </div>
+          </div>
+
+          <span class="lbl">默认模型映射</span>
+          <table style="margin:10px 0 24px">
+            <tr><th>用途</th><th>模型</th><th>说明</th></tr>
+            <tr><td>Agent 对话</td><td class="mono">deepseek-v4.1-flash</td><td>文本类全用它</td></tr>
+            <tr><td>生图 / 切图编辑</td><td class="mono">gpt-image-2</td><td>走图生图，需参考图</td></tr>
+            <tr><td>反推提示词</td><td class="mono">deepseek-v4.1-flash</td><td>模式：风格提取</td></tr>
+            <tr><td>图片描述（图片目录）</td><td class="mono">deepseek-v4.1-flash</td><td>上传后自动跑一次</td></tr>
+            <tr><td>记忆起草 · 复盘</td><td class="mono">deepseek-v4.1-flash</td><td>空闲心跳触发</td></tr>
+          </table>
+
+          <span class="lbl">记忆</span>
+          <div class="rowkv" style="margin:10px 0 24px">
+            <span class="k">存储位置</span><span class="mono">安装目录外 · 应用数据目录（更新不会清）</span>
+            <span class="k">类目</span><span>捏捏乐 / 美妆 / 通用 —— 三套独立，互不可见</span>
+            <span class="k">读点</span><span>会话开始 · 有新图上传；对话中不读不写</span>
+            <span class="k">写点</span><span>空闲 3 分钟心跳 → 起草 → 待你确认</span>
+            <span class="k">上限</span><span class="mono">单条 800 字 · 命中注入 8 条/6000 字 · 规则 32768 字</span>
+          </div>
+
+          <span class="lbl">软件更新</span>
+          <div style="display:flex;align-items:center;gap:12px;margin-top:10px;padding:12px;border:1px solid var(--line-2);border-radius:9px;background:rgba(255,255,255,.02)">
+            <div>
+              <div class="mono" style="color:var(--ink-2)">当前版本 3.4.8 · 通道 L（仅通用）</div>
+              <div class="mono" style="color:var(--ink-4);margin-top:3px">最近检查：2 分钟前 · 已是最新</div>
+            </div>
+            <div class="right"><button class="ghost">检查更新</button><button class="ghost">打开发布页</button></div>
+          </div>
+
+          <span class="lbl" style="display:block;margin-top:24px">行为</span>
+          <div style="display:flex;flex-direction:column;gap:12px;margin-top:10px;max-width:520px">
+            <div class="sw on"><span>出图前必须引用参考图（铁律）</span><span class="track"></span></div>
+            <div class="sw on"><span>记忆写入需你确认</span><span class="track"></span></div>
+            <div class="sw"><span>会话状态自动写入</span><span class="track"></span></div>
+            <div class="sw on"><span>仅监听本机（127.0.0.1）</span><span class="track"></span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+<div class="flash" id="flash"></div>
+
+<script>
+  const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+  let t; function flash(m){const e=$('#flash');e.textContent=m;e.classList.add('on');
+    clearTimeout(t);t=setTimeout(()=>e.classList.remove('on'),1800)}
+
+  // 界面切换（图标栏 / 地址栏 #hash 都能切）
+  function go(id){
+    $$('.screen').forEach(s=>s.classList.toggle('on', s.id==='s-'+id));
+    $$('.ico').forEach(b=>b.classList.toggle('on', b.dataset.go===id));
+    location.hash = id;
+  }
+  $$('.ico[data-go]').forEach(b=>b.addEventListener('click',()=>go(b.dataset.go)));
+  const h=(location.hash||'#agent').slice(1);
+  go(['agent','gen','lib','canvas','settings'].includes(h)?h:'agent');
+
+  // 类目切换：线程里的类目字样一起变
+  $$('[data-cat]').forEach(b=>{ if(b.tagName==='BUTTON') b.addEventListener('click',()=>{
+    const seg=b.closest('.seg'); if(seg) seg.querySelectorAll('button').forEach(x=>x.classList.remove('on'));
+    b.classList.add('on');
+    $$('.screen .sub [data-cat], .screen span[data-cat]').forEach(s=>{ if(!s.closest('.seg')) s.textContent=b.textContent; });
+    flash('已切到 '+b.textContent+' · 记忆与对话整套切换');
+  })});
+
+  // 待确认队列：✓ 写入 / ✕ 驳回（驳回要先写理由）
+  function refresh(){
+    const n=$$('#qrows .qrow:not(.done)').length;
+    const b=$('#badge'); b.textContent=n; b.classList.toggle('dim',n===0);
+    $('#qnum').textContent=n;
+    $('#submitAll').innerHTML = n ? '写入全部 '+n+' 条' : '暂无待确认';
+  }
+  $('#qrows').addEventListener('click',e=>{
+    const btn=e.target.closest('.mini'); if(!btn) return;
+    const row=btn.closest('.qrow');
+    if(btn.dataset.act==='no' && !prompt_reason(row)) return;
+    row.classList.add('done'); row.style.transition='opacity .18s'; row.style.opacity='0';
+    setTimeout(()=>{row.style.display='none';refresh()},200);
+    flash(btn.dataset.act==='yes'?'已写入本类目记忆':'已驳回 · 理由已记，之后不再重复提');
+  });
+  function prompt_reason(row){
+    const v=window.prompt('驳回要写一句理由（会回流给 AI，下次不再提这条）');
+    if(v===null){flash('要驳回就得写一句理由');return false}
+    return true;
+  }
+  $('#submitAll').addEventListener('click',()=>{
+    const list=$$('#qrows .qrow:not(.done)');
+    if(!list.length) return flash('没有待确认的条目');
+    list.forEach((r,i)=>setTimeout(()=>{r.classList.add('done');r.style.transition='opacity .18s';
+      r.style.opacity='0';setTimeout(()=>{r.style.display='none';refresh()},200)},i*150));
+    flash('已写入 '+list.length+' 条');
+  });
+
+  // 素材多选
+  $$('#s-lib .asset').forEach(a=>a.addEventListener('click',()=>{
+    a.classList.toggle('sel');
+    const n=$$('#s-lib .asset.sel').length;
+    const lbl=$('#s-lib aside .lbl'); if(lbl && lbl.textContent.includes('已选')) lbl.textContent='已选 '+n+' 张';
+  }));
+
+  // 画布节点选中
+  $$('.node').forEach(n=>n.addEventListener('click',()=>{
+    $$('.node').forEach(x=>x.classList.remove('on')); n.classList.add('on');
+    $('.inspector .lbl + div, .inspector div[style*="font-weight:600"]');
+  }));
+
+  // 表单 chip 单选
+  $$('.chips').forEach(c=>c.addEventListener('click',e=>{
+    const b=e.target.closest('.chip'); if(!b) return;
+    c.querySelectorAll('.chip').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  }));
+  // 开关
+  $$('.sw').forEach(s=>s.addEventListener('click',()=>{s.classList.toggle('on');
+    flash(s.classList.contains('on')?'已开启：'+s.firstElementChild.textContent:'已关闭：'+s.firstElementChild.textContent)}));
+  refresh();
+</script>
+</body>
+</html>

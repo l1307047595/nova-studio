@@ -71,6 +71,14 @@ export interface MemorySinkResult {
 }
 
 /**
+ * 单轮沉淀各类型的条数上限 —— 与起草提示词里写的「上限」一致，但**在代码侧强制**。
+ * 模型常无视提示词（一轮吐 5+5+5 条 → 待确认队列瞬间十几条），代码必须兜底截断。
+ */
+export const SINK_CAPS = { feedback: 2, library: 2, proposal: 1, recent: 1 } as const;
+/** 未在上表列出的类型（session 等）的兜底上限 */
+const SINK_DEFAULT_CAP = 1;
+
+/**
  * 记忆写入判据（起草端与代码端共用同一套；改这里就够，不要在别处再写一份）。
  * 目的：把「复述这一单做了什么」挡在外面，只放「下次还用得上的经验」。
  */
@@ -95,8 +103,10 @@ const WRITE_RULES = `═══ 什么才值得写（判据，逐条对照）═�
 - proposal（规则建议）：首行 = 规则标题；然后 \`- 标签：…\` / \`- 判据：…\` / \`- 规则：…\` / \`- 来源：…\`（写清依据哪几句话或哪几次单）。没写完就别提。
 - session（会话状态）：\`<商品>：已出 <图型>；还差 <下一步>\`，已完成写 \`已完成：<商品>\`。
 
-═══ 数量与自检（宁缺勿滥）═══
-- 上限：feedback ≤ 2 条、library ≤ 2 条、proposals ≤ 1 条。没把握就给空数组。
+═══ 数量与自检（宁缺勿滥，硬约束）═══
+- 上限（代码会强制截断）：feedback ≤ 2 条、library ≤ 2 条、proposals ≤ 1 条。一轮里通常只有 0~2 条真正达标；凑不满就给空数组，不许为凑数而写。
+- 同一件事只写一次：已在 feedback 里写过的，不要再换个说法写进 library（会被去重丢掉）。
+- 只写「用户明确纠正过的点」或「出图真出过的问题」；你自己的推断、以及「要高清」「注意构图」这类放之四海皆准的空话，一律不写。
 - 提之前先在内部自检三问：① 这条是经验还是复述？② 下次什么情况会用到它？③ 依据是用户说的还是出图出的？
   有一问答不上来，就不要提。
 - 不要与本类目已有条目重复；被驳回过的条目，换个说法也不要再提。`;
@@ -385,7 +395,16 @@ export async function sinkAgentMemory(input: MemorySinkInput): Promise<MemorySin
     }
 
     let filtered = 0;
-    const clean = (kind: 'feedback' | 'library' | 'proposal' | 'session' | 'recent', items: string[]): string[] => {
+    /**
+     * 清洗 + 去重 + **强制按上限截断**。
+     * 上限写在起草提示词里、模型却常无视，这里按「记忆编写规范」的固定上限兜底；
+     * 跨类型去重做在同一份基线上（同一件事被同时写成 feedback 和 library 时，只留先处理的那条）。
+     */
+    const clean = (
+      kind: 'feedback' | 'library' | 'proposal' | 'session' | 'recent',
+      items: string[],
+      cap: number = SINK_DEFAULT_CAP,
+    ): string[] => {
       const usable = items
         .map(item => normalizeDraftTags(item))                     // 先把「维度:值」标签转成 #标签
         .filter(item => {
@@ -393,12 +412,16 @@ export async function sinkAgentMemory(input: MemorySinkInput): Promise<MemorySin
           if (!ok) filtered += 1;
           return ok;
         });
-      return dedupeDrafts(usable, existingBaseline);
+      const deduped = dedupeDrafts(usable, existingBaseline);
+      const kept = deduped.slice(0, Math.max(0, cap));
+      filtered += deduped.length - kept.length;                    // 超上限被截掉的也算「没进队列」
+      existingBaseline = existingBaseline.concat(kept);            // 供后续类型跨类去重
+      return kept;
     };
 
-    const feedbackItems = clean('feedback', parsed.feedback);
-    const libraryItems = clean('library', parsed.library);
-    const proposalItems = clean('proposal', parsed.proposals);
+    const feedbackItems = clean('feedback', parsed.feedback, SINK_CAPS.feedback);
+    const libraryItems = clean('library', parsed.library, SINK_CAPS.library);
+    const proposalItems = clean('proposal', parsed.proposals, SINK_CAPS.proposal);
 
     let feedbackCount = 0;
     let queued = 0;
@@ -419,7 +442,7 @@ export async function sinkAgentMemory(input: MemorySinkInput): Promise<MemorySin
     }
     // 近期记录：进待确认队列（你不确认就不落盘）；确认后写进滚动窗口，旧条目自动丢弃
     let recentCount = 0;
-    for (const item of clean('recent', parsed.recent ? [parsed.recent] : [])) {
+    for (const item of clean('recent', parsed.recent ? [parsed.recent] : [], SINK_CAPS.recent)) {
       const result = await queueMemoryDraft('recent', item, { source: 'heartbeat', session: input.sessionId });
       if (result.ok) { recentCount += 1; queued += 1; }
     }
