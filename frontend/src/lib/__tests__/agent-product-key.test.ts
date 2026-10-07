@@ -82,6 +82,43 @@ describe('scopeAgentProposal 商品键归一化', () => {
   });
 });
 
+// 回归（用户 2026-10 截图）：模型明明说了「我用 img_6 做主图参考」，提案卡却「已选 0」，
+// 缩略图一张都不显示，逼用户手动上传。两条把参考图过滤空的路径都要堵住。
+describe('作用域过滤不得把参考图清空', () => {
+  function uploadedImage(imgId: string): AgentImageRecord {
+    return {
+      imgId,
+      source: 'uploaded',
+      thumbnail: `data:image/png;base64,${imgId}`,
+      description: '用户上传的商品图',
+      mimeType: 'image/png',
+      createdAt: 1,
+    };
+  }
+
+  it('模型把商品名/自由文本填进 product_key（目录里无此键）→ 弃用该键，参考图保留', () => {
+    const scoped = scopeAgentProposal(
+      proposal({ productKey: '男性身体乳', referencedImageIds: ['img_6'] }),
+      [uploadedImage('img_6')],
+    );
+    expect(scoped.productKey).toBeUndefined();
+    expect(scoped.referencedImageIds).toEqual(['img_6']);
+  });
+
+  it('过滤结果为空时，退回「目录里真实存在的被引用图」而不是清空', () => {
+    const images = [
+      image('img_a', 'taobao:1'),
+      image('img_b', 'taobao:2'),
+    ];
+    // 提案键指向商品 2，却引用了商品 1 的图 → 正常过滤会得到空；必须退回被引用的 img_a
+    const scoped = scopeAgentProposal(
+      proposal({ productKey: 'taobao:2', referencedImageIds: ['img_a'] }),
+      images,
+    );
+    expect(scoped.referencedImageIds).toEqual(['img_a']);
+  });
+});
+
 // 回归（用户 2026-09-23 截图）：老会话里明明有 8 张图，提案却报「没有参考图」→ 铁律拦下 →
 // 用户看到「生成失败」。根因是作用域过滤把参考图全过滤空了（目录里的图都带 productKey，
 // 提案没带商品标识 → 走到「只留没有 productKey 的图」这条分支）。

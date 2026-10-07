@@ -212,6 +212,12 @@ export function scopeAgentProposal(proposal: AgentProposal, images: AgentImageRe
   const referencedKeys = [...new Set(referencedRecords.map(image => normalizeProductKey(image.productKey)).filter((key): key is string => Boolean(key)))];
 
   let productKey = explicitKey;
+  // 模型常把商品名 / 自由文本填进 product_key（schema 说单商品可为 null，它不一定听）。
+  // 若这个 key 在目录里找不到任何对应商品，就是无效键 —— 直接弃用；否则下面的过滤会按「不存在的商品」
+  // 把参考图整个清空 → 提案卡一张都不勾 → 用户被迫手动传图。
+  if (productKey && !scopedImages.some(image => normalizeProductKey(image.productKey) === productKey)) {
+    productKey = undefined;
+  }
   if (!productKey && proposal.productName) {
     const named = scopedImages.find(image => image.productName === proposal.productName || image.description.includes(proposal.productName!));
     productKey = normalizeProductKey(named?.productKey);
@@ -227,6 +233,13 @@ export function scopeAgentProposal(proposal: AgentProposal, images: AgentImageRe
     return true;
   });
 
+  // 兜底（关键）：作用域过滤**绝不能把提案变成「没有参考图」**。
+  // 模型明明按目录引用了图片（referencedImageIds 非空且在目录里），却因作用域判定被清空时，
+  // 退回「它真正引用过的、目录里存在的那些图」——宁可让用户看到图，也不要让他对着「还没有参考图」
+  // 反复手动上传。跨商品混用的风险仍由提示词与正常（非空）过滤结果约束。
+  const referencedExisting = proposal.referencedImageIds.filter(id => byId.has(id));
+  const finalIds = allowedIds.length > 0 ? allowedIds : referencedExisting;
+
   const matchingImage = productKey ? scopedImages.find(image => normalizeProductKey(image.productKey) === productKey) : undefined;
   const productName = proposal.productName || matchingImage?.productName;
 
@@ -234,7 +247,7 @@ export function scopeAgentProposal(proposal: AgentProposal, images: AgentImageRe
     ...proposal,
     productKey,
     productName,
-    referencedImageIds: allowedIds,
+    referencedImageIds: finalIds,
     queuedProposals: proposal.queuedProposals?.map(item => scopeAgentProposal(item, images)),
   };
 }
@@ -502,12 +515,15 @@ export const PROPOSE_IMAGE_ACTION_TOOL = {
 
 // 识图规则：固定字段读商品（改这里＝改识图规则）。
 // 用途：后面的风格 / 构图 / 色族决策**必须引用这里的字段作为依据**；字段太薄，模型就只能凭想象画。
-export const AGENT_IMAGE_DESCRIBE_PROMPT = `按固定字段读这张商品图，八个字段各一篇段，极简、无解释，缺项写「无」，不要任何前缀或标点装饰：
+// 关键：Agent 是纯文本的，它看到的「图片」就是这里产出的描述 —— 所以**品类**与**图上文字原文**
+// 必须出现在描述里，否则 Agent 认不出「身体乳 / 护手霜」这类商品，只能写「需你确认」。
+export const AGENT_IMAGE_DESCRIBE_PROMPT = `按固定字段读这张商品图，九个字段各一篇段，极简、无解释，缺项写「无」，不要任何前缀或标点装饰：
+品类=（这是什么商品，如 身体乳 / 护手霜 / 玩具 / 除霉仪；**能看清包装上的文字就以文字为准**，别因为造型特殊就写「不确定」）
 造型轮廓=（形状/比例/有无表情或细节）
 件数与组合=（几件/是否成组）
 材质手感=（哑光·亮面·透明 + 软硬）
 色族=（主色 + 辅助色）
-包装与印刷=（有无文字、在什么位置、样式）
+包装与印刷=（有无文字、位置、样式；**并把图上能看清的文字原文逐条抄下**：主标题 / 品类词 / 规格 / 口味 / 品牌）
 可捏部位=
 主题或节日元素=
 是否食品造型=（是/否）`;
